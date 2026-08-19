@@ -1,6 +1,6 @@
 {
   "name": "kiro-action",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Unofficial GitHub Action that runs the Kiro CLI on issues and pull requests",
   "scripts": {
