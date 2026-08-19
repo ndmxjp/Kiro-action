@@ -1,5 +1,9 @@
 # Kiro Action
 
+[![CI](https://github.com/ndmxjp/Kiro-action/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ndmxjp/Kiro-action/actions/workflows/ci.yml)
+[![Marketplace](https://img.shields.io/badge/marketplace-Kiro%20CLI%20Action-2ea44f?logo=github&logoColor=white)](https://github.com/marketplace/actions/kiro-cli-action)
+[![License](https://img.shields.io/github/license/ndmxjp/Kiro-action)](LICENSE)
+
 Run the [Kiro CLI](https://kiro.dev) on GitHub issues and pull requests. Mention
 `@kiro` in a comment and it reads the thread, works in a branch, and reports back
 by editing a single tracking comment.
