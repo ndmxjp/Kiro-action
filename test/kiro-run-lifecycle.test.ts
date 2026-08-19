@@ -145,6 +145,46 @@ describe("runKiro lifecycle", () => {
     expect(readFileSync(outputFile, "utf8")).toContain("the answer");
   });
 
+  test("passes the effort and the engine flag through to the CLI", async () => {
+    const { promptFile, outputFile } = paths();
+
+    // The fake echoes its own argv, so what the CLI would have received is
+    // exactly what lands in the captured output.
+    const result = await runKiro({
+      ...base,
+      kiroCommand: fakeCli('echo "argv: $@"; exit 0'),
+      promptFile,
+      outputFile,
+      effort: "high",
+    });
+
+    const output = readFileSync(outputFile, "utf8");
+    expect(result.reason).toBe("success");
+    expect(output).toContain("--effort high");
+    expect(output).toContain("--agent kiro-action");
+    expect(output).toContain("--v3");
+    // The prompt is the last argument, never piped through a shell.
+    expect(output).toContain("do the thing");
+  });
+
+  test("omits --effort when none is configured, leaving the CLI default", async () => {
+    const { promptFile, outputFile } = paths();
+
+    const result = await runKiro({
+      ...base,
+      kiroCommand: fakeCli('echo "argv: $@"; exit 0'),
+      promptFile,
+      outputFile,
+      engine: "v2",
+    });
+
+    const output = readFileSync(outputFile, "utf8");
+    expect(result.reason).toBe("success");
+    expect(output).not.toContain("--effort");
+    // v2 is selected by the absence of the flag, not by a --v2 of its own.
+    expect(output).not.toContain("--v3");
+  });
+
   test("reports a timeout as a failure, not as a quiet success", async () => {
     const { promptFile, outputFile } = paths();
 

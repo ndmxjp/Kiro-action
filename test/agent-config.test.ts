@@ -253,6 +253,28 @@ describe("buildAgentConfig on the v3 engine", () => {
   });
 });
 
+describe("the model input", () => {
+  test("records the model in the agent config, on either engine", () => {
+    // The model goes through the agent profile rather than a CLI flag, so it is
+    // set the same way whichever engine is selected.
+    expect(config({ model: "claude-sonnet-5" }).model).toBe("claude-sonnet-5");
+    expect(config({ engine: "v3", model: "claude-sonnet-5" }).model).toBe(
+      "claude-sonnet-5",
+    );
+  });
+
+  test("omits the key entirely when nothing is configured", () => {
+    // Absent, not null or empty: the CLI picks its own default only when the
+    // field is missing, and an empty string would be a model name it cannot
+    // resolve.
+    const built = config({ model: "" });
+
+    expect(built.model).toBeUndefined();
+    expect("model" in built).toBe(false);
+    expect(JSON.parse(JSON.stringify(built))).not.toHaveProperty("model");
+  });
+});
+
 describe("parseAdditionalPermissions", () => {
   test("returns the defaults when nothing is configured", () => {
     expect(parseAdditionalPermissions(undefined)).toEqual({
