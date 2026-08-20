@@ -68,6 +68,16 @@ jobs:
           timeout_minutes: 20
           # This repository's own checks, so Kiro can verify what it changes.
           allowed_shell_commands: "bun install,bun test *,bun run typecheck,bun run format:check"
+          # The Kiro ghost, floating, in place of the ⏳. Sixteen frames of an
+          # APNG whose only per-frame difference is a vertical offset. It is
+          # 44x54, so the display size keeps that ratio rather than squaring it,
+          # and 18px rather than 14 because at 14 the two eyes merge into one
+          # line. Attachment uploaded to this repository, which is public, so it
+          # loads for anyone reading the comment.
+          #
+          # No style attribute: GitHub's sanitiser drops it and substitutes its
+          # own (max-height, aspect-ratio), so only width/height/alt survive.
+          working_indicator: '<img src="https://github.com/user-attachments/assets/b16d4a66-5c85-485d-9b9c-bd0c9549265f" width="15" height="18" alt="" />'
 
       - name: Upload the CLI output
         if: always() && steps.kiro.outputs.execution_file != ''

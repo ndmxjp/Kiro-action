@@ -80,20 +80,34 @@ not play in a comment). Do not link a file committed to the repository: GitHub
 serves comment images through an image proxy rather than fetching them directly, so
 a `raw.githubusercontent.com` link is unreliable in general, and outright broken for
 a private repository because the proxy cannot authenticate to it. Instead upload the
-image once by dragging it into the comment box of any issue, which inserts a
-`https://github.com/user-attachments/assets/<id>` URL; discard the draft comment and
-pass that URL in:
+image by dragging it into the comment box of an issue on a **public** repository,
+which inserts a `https://github.com/user-attachments/assets/<id>` URL, and **post
+that comment**:
 
 ```yaml
 with:
   kiro_api_key: ${{ secrets.KIRO_API_KEY }}
-  working_indicator: '<img src="https://github.com/user-attachments/assets/<id>" width="14" height="14" style="vertical-align: middle" />'
+  working_indicator: '<img src="https://github.com/user-attachments/assets/<id>" width="15" height="18" alt="" />'
 ```
 
-That URL inherits the visibility of the repository you uploaded it in: uploaded from
-a public repository it loads for anyone, from a private one only for people who can
-see that repository. Either way it renders for whoever can read the comment it
-appears in, so upload it somewhere the intended readers can reach.
+Posting the comment is not optional, and this is the part that is easy to get
+wrong. An attachment dragged into a comment box that is then discarded stays
+private: measured on this repository, the URL returned `404 Not Found` to an
+anonymous request while still returning the image to an authenticated one — so it
+renders for the person who uploaded it and is broken for everyone else. Posting the
+comment made the same URL return `200` anonymously. Keep that comment; do not
+delete it after copying the URL.
+
+Give the `<img>` the source image's own aspect ratio rather than a square, and size
+it by what survives: at 14px a small mark's details merge together, while 18px
+still sits on the text line.
+
+Only `width`, `height` and `alt` reach the rendered comment. Rendering the snippet
+above through GitHub's own `POST /markdown` shows the rest rewritten: `src` is
+replaced with a `camo.githubusercontent.com` proxy URL, the image is wrapped in a
+link to that URL, and any `style` you supply is discarded in favour of GitHub's own
+(`max-height`, `aspect-ratio`, and a placeholder background). So there is no point
+trying to nudge the vertical alignment from here.
 
 ## Outputs
 
