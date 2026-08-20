@@ -108,3 +108,10 @@ On `agent_engine: v3` the CLI leaves a KAS server running after it answers. The
 action kills the whole process group and releases the pipes, so that does not stall
 the job. If a run ever goes quiet without finishing, 90 seconds of silence is
 treated as completion and the execution log says so.
+
+## Where do I report a problem with this action?
+
+Bugs and feature requests go to
+[this repository's issues](https://github.com/ndmxjp/Kiro-action/issues). Report a
+suspected vulnerability by opening a security advisory on the repository rather
+than a public issue.
