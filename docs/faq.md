@@ -71,10 +71,17 @@ Same shape, different CLI. Differences that follow from the Kiro CLI's surface:
 | Commit signing            | optional, via the GitHub API             | not supported                               |
 | Inline PR review comments | supported                                | not supported                               |
 
-There is no `--output-format json` on `kiro-cli chat`
-([kirodotdev/Kiro#5423](https://github.com/kirodotdev/Kiro/issues/5423)), which is
-why there is no structured output and no per-turn report: the execution file is
-the raw CLI output with secrets redacted.
+The execution file is the raw CLI output with secrets redacted, and progress
+depends on the model calling `update_kiro_comment`. This was forced when the CLI
+had no machine-readable output
+([kirodotdev/Kiro#5423](https://github.com/kirodotdev/Kiro/issues/5423)); it no
+longer is. kiro-cli 2.21.1 ships `--output-format stream-json` — the run's ACP
+events as JSON Lines on stdout, measured here as clean JSONL with no ANSI, tool
+calls carrying the exact command and its result, and a `runFinished` event with
+the final answer (the upstream issue is still open, but the flag exists). This
+action does not use it yet: it requires `--agent-engine v2` or `v3` to be passed
+explicitly, and adopting it means redesigning how progress reaches the tracking
+comment.
 
 Bugs found while building this action and reported upstream:
 [#10876](https://github.com/kirodotdev/Kiro/issues/10876) (v3 ignores MCP servers
