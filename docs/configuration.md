@@ -120,10 +120,12 @@ line and to keep the overall verdict elsewhere: in the tracking comment when the
 is one, otherwise in its final answer, which a later workflow step can post (see
 `examples/kiro-review.yml` for the review-every-PR shape).
 
-What it deliberately is not: a review. The server wraps
+What it deliberately is not: a verdict. The server wraps
 `pulls.createReviewComment` and nothing else, so the review API — the one that
-carries approve and request-changes — is never reachable. Kiro still cannot
-approve, request changes, or submit a formal review.
+carries approve and request-changes — is never reachable. GitHub does file each
+inline comment under a review object with state `COMMENTED` (measured on the
+first real run: one comment, one review, `state: COMMENTED`, empty body); that
+is a container, not an opinion. Kiro still cannot approve or request changes.
 
 Limits, and why:
 
