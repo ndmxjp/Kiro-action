@@ -20,6 +20,7 @@ import { detectMode } from "../modes/detector";
 import { prepareTagMode, type PreparedRun } from "../modes/tag";
 import { prepareAgentMode } from "../modes/agent";
 import { installKiroCli } from "../kiro/install";
+import { installSkills } from "../kiro/skills";
 import { prepareKiroEnvironment } from "../kiro/env";
 import { runKiro, type KiroRunResult } from "../kiro/run";
 import {
@@ -108,6 +109,17 @@ export async function run() {
 
     // ---- Run -----------------------------------------------------------
     const kiroCommand = installKiroCli();
+
+    // Install Agent Skills before the CLI starts. This single site covers both
+    // modes (the alternative — calling it inside prepareTagMode and
+    // prepareAgentMode — would duplicate it), and it is deliberately here rather
+    // than earlier: the clone writes into ~/.kiro/skills under $HOME, never the
+    // checkout, so it does not need the snapshot that guards the working tree,
+    // and the agent never gets network access for the fetch. The module is
+    // dependency-free (Node built-ins only); see src/kiro/skills.ts.
+    if (context.inputs.skills.trim()) {
+      installSkills(context.inputs.skills);
+    }
 
     // On a pull request the checkout is attacker-controlled, and the CLI reads
     // agent definitions, MCP config, hooks, and steering files from it. Replace

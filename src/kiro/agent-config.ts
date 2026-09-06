@@ -171,7 +171,26 @@ export type KiroAgentConfig = {
    */
   permissions?: { rules: PermissionRule[] };
   model?: string;
+  /**
+   * Where the agent loads Agent Skills from. Skills are cloned into
+   * ~/.kiro/skills/<name>/ before the CLI starts (see src/kiro/skills.ts), and
+   * this glob tells the agent to load every one of their SKILL.md files.
+   *
+   * Emitted on both engines. I could not measure whether v2 and v3 differ in
+   * how they honour `resources` on the CLI available in this sandbox (the CLI is
+   * not installed here and the npm registry is blocked), so per the codebase's
+   * "claims are measured" convention I state that plainly rather than guess: it
+   * is set unconditionally, which is harmless on an engine that ignores it and
+   * correct on one that needs it.
+   */
+  resources?: string[];
 };
+
+/**
+ * The glob the generated agent config points at so the CLI loads every
+ * installed skill's SKILL.md. The exact string comes from kiro-action#16.
+ */
+const SKILLS_RESOURCE = "skill://~/.kiro/skills/*/SKILL.md";
 
 function parseList(value: string): string[] {
   return value
@@ -244,6 +263,10 @@ export function buildAgentConfig({
     mcpServers,
     tools: dedupe(tools),
     allowedTools: dedupe(trusted),
+    // Load any skills installed under ~/.kiro/skills before the CLI started.
+    // Present on both engines; see the field's doc comment for why it is not
+    // engine-gated.
+    resources: [SKILLS_RESOURCE],
     includeMcpJson: engine === "v3",
     ...(engine === "v3"
       ? {

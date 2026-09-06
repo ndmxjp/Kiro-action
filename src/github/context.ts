@@ -104,6 +104,14 @@ export type ActionInputs = {
   allowedTools: string;
   /** Extra shell command patterns granted to the agent (comma separated). */
   allowedShellCommands: string;
+  /**
+   * Agent Skills to install into the run, newline separated. Each entry is
+   * `owner/repo@<sha>[/path]` or an `https://…git` URL optionally `#<sha>`. A
+   * commit SHA is required: a moving ref is code that can change under you (the
+   * same reason setup-bun is SHA-pinned in action.yml). Each is cloned into
+   * ~/.kiro/skills/ before the CLI starts; see src/kiro/skills.ts.
+   */
+  skills: string;
   /** Escape hatch: pass `--trust-all-tools` to the Kiro CLI. */
   trustAllTools: boolean;
   /**
@@ -191,6 +199,7 @@ export function parseGitHubContext(): GitHubContext {
       model: process.env.KIRO_MODEL ?? "",
       allowedTools: process.env.ALLOWED_TOOLS ?? "",
       allowedShellCommands: process.env.ALLOWED_SHELL_COMMANDS ?? "",
+      skills: process.env.SKILLS ?? "",
       trustAllTools: process.env.TRUST_ALL_TOOLS === "true",
       workingIndicator: process.env.WORKING_INDICATOR ?? "",
       agentEngine: process.env.AGENT_ENGINE === "v3" ? "v3" : "v2",
