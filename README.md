@@ -142,6 +142,7 @@ access to the repository can trigger a run.
 | `label_trigger`          | `kiro`         | Label that starts a tag-mode run.              |
 | `branch_prefix`          | `kiro/`        | Prefix for created branches.                   |
 | `allowed_shell_commands` | `""`           | Commands the agent may run, e.g. `bun test *`. |
+| `skills`                 | `""`           | Agent Skills to install, one per line.         |
 | `effort`                 | `""`           | CLI reasoning effort: `low`…`max`.             |
 | `timeout_minutes`        | `""`           | Hard limit on the CLI run.                     |
 | `github_token`           | `github.token` | Identity to act as.                            |

@@ -135,6 +135,19 @@ describe("buildAgentConfig on the v2 engine", () => {
   });
 });
 
+describe("Agent Skills resources", () => {
+  test("emits the skills resources glob on both engines", () => {
+    // Skills are cloned into ~/.kiro/skills before the CLI starts; the config
+    // points the agent at every one of their SKILL.md files. Present on both
+    // engines (see the field's doc comment for why it is not engine-gated).
+    for (const engine of ["v2", "v3"] as const) {
+      expect(config({ engine }).resources).toEqual([
+        "skill://~/.kiro/skills/*/SKILL.md",
+      ]);
+    }
+  });
+});
+
 describe("shellPatternToRegex", () => {
   test("turns a glob into an anchored-regex equivalent", () => {
     expect(shellPatternToRegex("bun test *")).toBe("bun test .*");

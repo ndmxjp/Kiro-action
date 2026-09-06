@@ -87,6 +87,10 @@ inputs:
     description: "Comma-separated shell command patterns to allow, in glob form, e.g. 'bun test *,bun run build'. Honoured on both engines; the deny list (curl, git push, git config, …) always wins. See docs/security.md."
     required: false
     default: ""
+  skills:
+    description: "Newline-separated Agent Skills to install before the CLI starts. Each entry is 'owner/repo@<sha>' (optionally 'owner/repo@<sha>/path/to/skill') or an 'https://…git' URL optionally suffixed with '#<sha>'. A commit SHA is required, because a moving ref is unpinned code that can change under you. Each is cloned into ~/.kiro/skills/ and its SKILL.md is verified. See docs/security.md."
+    required: false
+    default: ""
   agent_engine:
     description: "Kiro agent engine: 'v2' (default) or 'v3'. Both scope the shell per command and confine writes to the checkout — v2 through toolsSettings, v3 through permissions.rules. v3 is early access and reads MCP servers from ~/.kiro/settings/mcp.json rather than the agent profile, which also merges the checkout's copy, so stay on v2 unless you need something only v3 has. See docs/security.md."
     required: false
@@ -234,6 +238,7 @@ runs:
         KIRO_MODEL: ${{ inputs.model }}
         ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
         ALLOWED_SHELL_COMMANDS: ${{ inputs.allowed_shell_commands }}
+        SKILLS: ${{ inputs.skills }}
         TRUST_ALL_TOOLS: ${{ inputs.trust_all_tools }}
         AGENT_ENGINE: ${{ inputs.agent_engine }}
         KIRO_ARGS: ${{ inputs.kiro_args }}
