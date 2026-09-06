@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish the local baseline and confirm exactly which verification commands are possible under the sandbox's INTEGRATIONS_ONLY network mode, so later features know what green looks like. This is the mandatory environment-setup feature for an existing project. NOTE: `bun install` is expected to FAIL here (npm registry 403), which is a network-mode limitation, not a code defect.",
+  "status": "completed",
+  "steps": [
+    "Run `bun install --frozen-lockfile` from the repo root and confirm the outcome. Under INTEGRATIONS_ONLY it fails with HTTP 403 from registry.npmjs.org and leaves node_modules empty; record that verbatim in this feature's findings. Do NOT add or change any dependency to work around it, and do NOT modify bun.lock.",
+    "Confirm `bash -n scripts/git-push.sh` succeeds (this is the one CI check runnable locally).",
+    "Confirm the syntax-only gate works: run `bun build src/kiro/run.ts --target=node --no-bundle` and observe it transpiles without a syntax error even though imports cannot be resolved. This is the per-file syntax check later features will use on changed files.",
+    "Record in findings: the exact commands that CANNOT run locally (bun run typecheck, bun run format:check, bun test) and why (they need node_modules, which cannot be installed), and the commands that CAN (bash -n, per-file `bun build --no-bundle`). State that full typecheck/format/test verification and every kiro-cli/ACP/MCP measurement will only happen in GitHub Actions CI."
+  ],
+  "acceptance_criteria": [
+    "findings records that `bun install --frozen-lockfile` fails with a registry 403 under INTEGRATIONS_ONLY and that node_modules is empty",
+    "`bash -n scripts/git-push.sh` exits 0",
+    "`bun build src/kiro/run.ts --target=node --no-bundle` completes without a syntax error",
+    "findings lists which CI checks are and are not runnable locally"
+  ],
+  "verification": [
+    "bash -n scripts/git-push.sh",
+    "bun build src/kiro/run.ts --target=node --no-bundle"
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline established under INTEGRATIONS_ONLY (repository access only). Verified with local Bun 1.2.14 / Node v22 (the action pins Bun 1.3.14 in action.yml and ci.yml; pin left unchanged). RESULTS: (1) `bun install --frozen-lockfile` FAILS from the repo root: every package fetch returns HTTP 403 from registry.npmjs.org (e.g. `error: GET https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz - 403`), process exits 1, and node_modules stays empty (0 entries). This is the expected network-mode limitation, NOT a code defect; no dependency was added/changed and bun.lock was not modified. (2) `bash -n scripts/git-push.sh` exits 0 (the one CI check runnable locally). (3) Syntax-only gate `bun build src/kiro/run.ts --target=node --no-bundle` exits 0 with no syntax error even though imports cannot be resolved; this is the per-file syntax check later features should use on changed files. CANNOT run locally: `bun run typecheck` (tsc --noEmit), `bun run format:check` (prettier --check .), and `bun test` all require node_modules, which cannot be populated because installs 403; src files import @actions/core etc. at module top so resolution fails. CAN run locally: `bash -n scripts/git-push.sh` and per-file `bun build <file> --target=node --no-bundle`. CONCLUSION: full typecheck/format/test verification, and every kiro-cli / ACP / stream-json / MCP measurement, will only happen in GitHub Actions CI (ci.yml and .github/workflows/kiro-perm-probe.yml), never in this sandbox."
+}
