@@ -61,15 +61,15 @@ Install the version you want in an earlier step and point
 
 Same shape, different CLI. Differences that follow from the Kiro CLI's surface:
 
-|                           | claude-code-action                       | this action                                 |
-| ------------------------- | ---------------------------------------- | ------------------------------------------- |
-| Credential                | Anthropic key, Bedrock, Vertex           | `KIRO_API_KEY` only                         |
-| MCP wiring                | `--mcp-config` flag                      | generated agent config at `~/.kiro/agents/` |
-| Tool gating               | `--allowedTools` + `acceptEdits`         | agent `allowedTools` + `permissions.rules`  |
-| Progress                  | streaming JSON, parsed into the comment  | the `update_kiro_comment` MCP tool          |
-| Outputs                   | `structured_output`, turn-by-turn report | captured stdout in `execution_file`         |
-| Commit signing            | optional, via the GitHub API             | not supported                               |
-| Inline PR review comments | supported                                | not supported                               |
+|                           | claude-code-action                       | this action                                  |
+| ------------------------- | ---------------------------------------- | -------------------------------------------- |
+| Credential                | Anthropic key, Bedrock, Vertex           | `KIRO_API_KEY` only                          |
+| MCP wiring                | `--mcp-config` flag                      | generated agent config at `~/.kiro/agents/`  |
+| Tool gating               | `--allowedTools` + `acceptEdits`         | agent `allowedTools` + `permissions.rules`   |
+| Progress                  | streaming JSON, parsed into the comment  | the `update_kiro_comment` MCP tool           |
+| Outputs                   | `structured_output`, turn-by-turn report | captured stdout in `execution_file`          |
+| Commit signing            | optional, via the GitHub API             | not supported                                |
+| Inline PR review comments | supported                                | opt-in (`use_inline_comments`), capped at 20 |
 
 The execution file is the raw CLI output with secrets redacted, and progress
 depends on the model calling `update_kiro_comment`. This was forced when the CLI

@@ -51,6 +51,10 @@ inputs:
     description: "Force tag mode (tracking comment) even when a prompt is provided."
     required: false
     default: "false"
+  use_inline_comments:
+    description: "On a pull request, also give Kiro a create_inline_comment tool that posts review comments on specific diff lines (at most 20 per run). It still cannot approve, request changes, or submit a review. Off by default."
+    required: false
+    default: "false"
 
   # ---- Branching ----------------------------------------------------------
   base_branch:
@@ -220,6 +224,7 @@ runs:
         ASSIGNEE_TRIGGER: ${{ inputs.assignee_trigger }}
         LABEL_TRIGGER: ${{ inputs.label_trigger }}
         TRACK_PROGRESS: ${{ inputs.track_progress }}
+        USE_INLINE_COMMENTS: ${{ inputs.use_inline_comments }}
         # Branching
         BASE_BRANCH: ${{ inputs.base_branch }}
         BRANCH_PREFIX: ${{ inputs.branch_prefix }}

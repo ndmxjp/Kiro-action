@@ -12,6 +12,7 @@ const inputs: ActionInputs = {
   botName: "github-actions[bot]",
   allowedBots: "",
   trackProgress: false,
+  useInlineComments: false,
   includeCommentsByActor: "",
   excludeCommentsByActor: "",
   customInstructions: "",

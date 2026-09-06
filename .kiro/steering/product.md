@@ -29,6 +29,6 @@ These are decisions, not gaps to be closed opportunistically:
 
 - The agent cannot open, approve, or merge a pull request, and cannot submit a formal review. A run hands back a pre-filled "Create a PR" link so a human takes the last step.
 - The agent cannot commit or push. It edits files; the action commits.
-- The agent posts exactly one comment.
+- The agent posts exactly one comment, plus — only when a workflow opts in with `use_inline_comments` on a pull request — up to 20 inline review comments. It still cannot approve, request changes, or submit a review.
 - It cannot touch `.github/workflows`.
 - Only actors with write access to the repository can trigger a run.

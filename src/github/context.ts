@@ -87,6 +87,12 @@ export type ActionInputs = {
   botName: string;
   allowedBots: string;
   trackProgress: boolean;
+  /**
+   * Pull requests only: adds the github_inline_comment MCP server, whose single
+   * tool posts review comments on diff lines. Off by default because it turns
+   * one writable channel into many, and a conversational run has no use for it.
+   */
+  useInlineComments: boolean;
   includeCommentsByActor: string;
   excludeCommentsByActor: string;
   customInstructions: string;
@@ -177,6 +183,7 @@ export function parseGitHubContext(): GitHubContext {
       botName: process.env.BOT_NAME || DEFAULT_BOT_LOGIN,
       allowedBots: process.env.ALLOWED_BOTS ?? "",
       trackProgress: process.env.TRACK_PROGRESS === "true",
+      useInlineComments: process.env.USE_INLINE_COMMENTS === "true",
       includeCommentsByActor: process.env.INCLUDE_COMMENTS_BY_ACTOR ?? "",
       excludeCommentsByActor: process.env.EXCLUDE_COMMENTS_BY_ACTOR ?? "",
       customInstructions: process.env.CUSTOM_INSTRUCTIONS ?? "",

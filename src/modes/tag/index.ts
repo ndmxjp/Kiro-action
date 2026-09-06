@@ -140,6 +140,7 @@ export async function prepareTagMode({
     githubData,
     context,
     Boolean(mcpServers.github_ci),
+    Boolean(mcpServers.github_inline_comment),
     commitMessageFile,
   );
 

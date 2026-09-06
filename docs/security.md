@@ -182,9 +182,10 @@ that has `KIRO_API_KEY` in its environment. Two things bound that:
 - The actor check runs before the CLI is invoked, so a stranger's comment costs
   runner minutes but no Kiro credits and no agent execution.
 - The agent never receives the key as data. It cannot reach the network (`curl`,
-  `wget`, `web_fetch` are all refused) and its only writable channel to a human is
-  the tracking comment, which is redacted for both credential shapes — including
-  the `ksk_` prefix Kiro keys use — and for the literal values of the secrets this
+  `wget`, `web_fetch` are all refused) and its writable channels to a human are
+  the tracking comment and, when `use_inline_comments` is on, inline review
+  comments — every one of which is redacted for both credential shapes, including
+  the `ksk_` prefix Kiro keys use, and for the literal values of the secrets this
   action knows about.
 
 That last point is why the comment body goes through redaction and not just
@@ -216,7 +217,12 @@ These are real limitations, not oversights:
 4. **No commit signing.** The upstream action can commit through the GitHub API so
    commits are signed; this port commits with the git CLI, so commits are
    unsigned. A branch protection rule requiring signed commits will reject them.
-5. **Inline review comments are not supported.** Kiro reports through one comment.
+5. **Inline review comments widen the writable surface.** They are off by default;
+   with `use_inline_comments` the agent can post up to 20 review comments per run,
+   each sanitised and redacted like the tracking comment. The cap exists because,
+   unlike the single tracking comment, this channel could otherwise be used to
+   flood a pull request. It never exposes the review API, so approving or
+   requesting changes stays impossible.
 6. **No sandbox for non-write users.** The upstream action can run untrusted
    content in an isolated subprocess; this port simply refuses to run for actors
    without write access.
