@@ -68,6 +68,9 @@ jobs:
           timeout_minutes: 20
           # This repository's own checks, so Kiro can verify what it changes.
           allowed_shell_commands: "bun install,bun test *,bun run typecheck,bun run format:check"
+          # Line-bound review findings go on the line; the verdict stays in the
+          # tracking comment. Capped at 20 per run. See docs/configuration.md.
+          use_inline_comments: true
           # The Kiro ghost, floating, in place of the ⏳. Sixteen frames of an
           # APNG whose only per-frame difference is a vertical offset. It is
           # 44x54, so the display size keeps that ratio rather than squaring it,
