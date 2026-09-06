@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -19,10 +26,19 @@ import { join } from "node:path";
  * The security posture is the same one the rest of the action follows and is
  * spelled out in docs/security.md and .kiro/steering/security-invariants.md:
  *
- *   - Skills are cloned under $HOME (~/.kiro/skills/<name>/), NEVER into the
+ *   - Skills are installed under $HOME (~/.kiro/skills/<name>/), NEVER into the
  *     checkout. On a pull request the checkout is attacker-controlled and is
  *     swept into the commit this action makes; a skill written there would be
  *     both tamperable and committed.
+ *   - Only the skill folder's own content is installed, not the whole clone: the
+ *     resolved skill folder (the repo root, or `subpath` within it) is copied
+ *     flat into ~/.kiro/skills/<name>/, and the clone's `.git/` and any unrelated
+ *     sibling files are left behind. This is both what makes a subpath skill's
+ *     SKILL.md land where the loader glob finds it and what keeps repo files the
+ *     author did not intend as a skill from becoming prompt content. See
+ *     {@link installSkill} for the full reasoning.
+ *   - Only https:// clone URLs are accepted; http:// is rejected so a pinned SHA
+ *     is never fetched over plaintext transport.
  *   - A commit SHA is REQUIRED. A moving ref (branch or tag) is code that can
  *     change under you between the review and the run — the same reason
  *     action.yml pins setup-bun by SHA. Only a pinned commit is reproducible.
@@ -95,7 +111,18 @@ export function parseSkillEntry(raw: string): SkillEntry {
     throw new Error("Empty skills entry");
   }
 
-  if (entry.startsWith("http://") || entry.startsWith("https://")) {
+  if (entry.startsWith("http://")) {
+    // Reject plaintext transport. The commit SHA pins *what* is cloned, but
+    // http:// still fetches it over an unauthenticated, tamperable channel, and
+    // action.yml / docs promise https only. Rejecting here keeps the promise
+    // rather than silently downgrading; use the https:// form of the same URL.
+    throw new Error(
+      `Skills entry "${entry}" uses http://; only https:// is allowed ` +
+        "(plaintext transport is a downgrade even with a pinned SHA).",
+    );
+  }
+
+  if (entry.startsWith("https://")) {
     // https URL shape: the commit is after a `#` fragment, e.g.
     // https://github.com/owner/repo.git#<sha>. The name is derived from the
     // final path segment with any `.git` suffix removed.
@@ -243,13 +270,28 @@ export function readSkillName(skillMd: string): string | undefined {
  * this function assumes the name and SHA are safe and concentrates on the git
  * and filesystem work. It:
  *
- *   1. computes the target ~/.kiro/skills/<name>/ under $HOME,
- *   2. `git clone --depth 1` the source there and `git checkout <sha>` (a plain
- *      shallow clone lands on the default branch; the checkout pins the commit,
- *      and `git fetch --depth 1 <sha>` first is what makes an arbitrary commit
- *      reachable in a shallow clone),
- *   3. verifies SKILL.md exists at the target (or target/subpath) and that its
- *      frontmatter `name` matches the folder name, which Kiro requires.
+ *   1. computes the final target ~/.kiro/skills/<name>/ under $HOME,
+ *   2. clones the source into a throwaway staging directory (also under $HOME)
+ *      and `git checkout <sha>` (a plain shallow clone lands on the default
+ *      branch; the checkout pins the commit, and `git fetch --depth 1 <sha>`
+ *      first is what makes an arbitrary commit reachable in a shallow clone),
+ *   3. locates the skill folder inside the clone (the repo root, or `subpath`
+ *      within it), verifies SKILL.md exists there and that its frontmatter
+ *      `name` matches <name>, then copies THAT FOLDER'S CONTENTS — and nothing
+ *      else — flat into ~/.kiro/skills/<name>/.
+ *
+ * Why copy flat rather than clone straight into the target (see kiro-action#16
+ * review): the agent config points the CLI at a fixed glob (the SKILLS_RESOURCE
+ * in src/kiro/agent-config.ts) whose single wildcard matches exactly one
+ * directory level below ~/.kiro/skills. A subpath skill cloned in place would
+ * leave its SKILL.md at
+ * ~/.kiro/skills/<name>/<subpath>/SKILL.md — one level too deep — so it verified
+ * but never loaded. Copying the resolved skill folder to ~/.kiro/skills/<name>/
+ * puts SKILL.md exactly where the glob loads it, for both the subpath and the
+ * whole-repo case, and matches the frontmatter-name == folder-name check that
+ * already assumes the skill folder *is* <name>. It also drops the clone's `.git/`
+ * and every unrelated sibling file, so only the skill's own content becomes
+ * prompt content rather than the whole repository.
  *
  * git runs via execFileSync with an ARGS ARRAY — never a shell string — so none
  * of the values can be reinterpreted as extra arguments or shell syntax.
@@ -259,45 +301,68 @@ export function installSkill(entry: SkillEntry): string {
 
   const target = join(skillsRoot(), entry.name);
 
-  // A leftover directory from a previous run would make `git clone` fail; the
-  // action owns everything under ~/.kiro/skills, so replacing it is safe.
-  if (existsSync(target)) {
-    rmSync(target, { recursive: true, force: true });
+  // Clone into a sibling staging directory rather than the target itself, so
+  // that only the resolved skill folder's contents, not the whole clone with
+  // its .git/, end up under ~/.kiro/skills/<name>/. Both live under $HOME,
+  // never the checkout.
+  mkdirSync(skillsRoot(), { recursive: true });
+  // A fixed prefix (not the name, which may itself contain a slash) keeps the
+  // staging directory a single entry directly under the skills root.
+  const staging = mkdtempSync(join(skillsRoot(), ".staging-"));
+
+  try {
+    console.log(`Installing skill "${entry.name}" from ${entry.source}`);
+
+    git(["clone", "--depth", "1", "--no-tags", entry.source, staging]);
+    // Make the pinned commit reachable in the shallow clone, then check it out.
+    // `--depth 1` keeps this cheap even for a repository with long history.
+    git(["-C", staging, "fetch", "--depth", "1", "origin", entry.sha]);
+    git(["-C", staging, "checkout", "--force", entry.sha]);
+
+    const skillDir = entry.subpath ? join(staging, entry.subpath) : staging;
+    const skillMdPath = join(skillDir, "SKILL.md");
+    if (!existsSync(skillMdPath)) {
+      throw new Error(
+        `Skill "${entry.name}" has no SKILL.md at ${skillMdPath}. ` +
+          "A skill is a folder containing SKILL.md (see agentskills.io).",
+      );
+    }
+
+    const declaredName = readSkillName(readFileSync(skillMdPath, "utf8"));
+    if (declaredName === undefined) {
+      throw new Error(
+        `Skill "${entry.name}" SKILL.md has no frontmatter "name"; Kiro requires one.`,
+      );
+    }
+    if (declaredName !== entry.name) {
+      throw new Error(
+        `Skill "${entry.name}" declares name "${declaredName}" in SKILL.md; ` +
+          "the frontmatter name must match the folder name Kiro loads it under.",
+      );
+    }
+
+    // A leftover directory from a previous run would make the copy ambiguous;
+    // the action owns everything under ~/.kiro/skills, so replacing it is safe.
+    if (existsSync(target)) {
+      rmSync(target, { recursive: true, force: true });
+    }
+    // Copy the resolved skill folder's contents flat into the target so
+    // SKILL.md lands one level below ~/.kiro/skills, where the loader glob finds
+    // it. For a plain entry skillDir is the clone root, which still holds the
+    // clone's .git/, so the filter drops it; a subpath skillDir has no .git/ of
+    // its own but the filter is harmless there.
+    cpSync(skillDir, target, {
+      recursive: true,
+      filter: (src) => !isGitPath(src, skillDir),
+    });
+
+    console.log(`Installed skill "${entry.name}" at ${target}`);
+    return target;
+  } finally {
+    // The staging clone has served its purpose whether install succeeded or
+    // threw; never leave it behind under $HOME.
+    rmSync(staging, { recursive: true, force: true });
   }
-  mkdirSync(target, { recursive: true });
-
-  console.log(`Installing skill "${entry.name}" from ${entry.source}`);
-
-  git(["clone", "--depth", "1", "--no-tags", entry.source, target]);
-  // Make the pinned commit reachable in the shallow clone, then check it out.
-  // `--depth 1` keeps this cheap even for a repository with long history.
-  git(["-C", target, "fetch", "--depth", "1", "origin", entry.sha]);
-  git(["-C", target, "checkout", "--force", entry.sha]);
-
-  const skillDir = entry.subpath ? join(target, entry.subpath) : target;
-  const skillMdPath = join(skillDir, "SKILL.md");
-  if (!existsSync(skillMdPath)) {
-    throw new Error(
-      `Skill "${entry.name}" has no SKILL.md at ${skillMdPath}. ` +
-        "A skill is a folder containing SKILL.md (see agentskills.io).",
-    );
-  }
-
-  const declaredName = readSkillName(readFileSync(skillMdPath, "utf8"));
-  if (declaredName === undefined) {
-    throw new Error(
-      `Skill "${entry.name}" SKILL.md has no frontmatter "name"; Kiro requires one.`,
-    );
-  }
-  if (declaredName !== entry.name) {
-    throw new Error(
-      `Skill "${entry.name}" declares name "${declaredName}" in SKILL.md; ` +
-        "the frontmatter name must match the folder name Kiro loads it under.",
-    );
-  }
-
-  console.log(`Installed skill "${entry.name}" at ${skillDir}`);
-  return skillDir;
 }
 
 /**
@@ -325,9 +390,63 @@ export function installSkills(raw: string): void {
   }
 }
 
-/** Runs git with an args array and inherited stdio, throwing on failure. */
+/**
+ * Runs git with an args array, throwing on failure.
+ *
+ * Output is captured and passed through {@link redactEnvSecrets} before it is
+ * printed, rather than using `stdio: "inherit"`. Every other CLI-facing output
+ * path in this action is redacted, and while a shallow clone of a public repo
+ * over the pinned https URL carries no secret in practice, git can echo a remote
+ * URL — and a credential helper could fold a token into it — so routing this
+ * through the same kind of scrub keeps the asymmetry from becoming a leak. The
+ * redactor is deliberately Node-built-in-only (it reads process.env and does
+ * simple string replacement) so this module stays dependency-free and its
+ * bun:test still runs offline; it does not import the @actions-based
+ * redactAllSecrets in src/github/utils/sanitizer.ts for that reason.
+ */
 function git(args: string[]): void {
-  execFileSync("git", args, { stdio: "inherit", env: process.env });
+  const result = execFileSync("git", args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: process.env,
+    encoding: "utf8",
+  });
+  const text = redactEnvSecrets(result);
+  if (text.trim().length > 0) {
+    console.log(text.trimEnd());
+  }
+}
+
+/**
+ * Replaces any environment-variable secret value that appears in `text` with a
+ * placeholder. Node-built-in only (no npm deps): it scans process.env for the
+ * values of variables whose name looks sensitive (TOKEN/SECRET/KEY/PASSWORD) and
+ * masks each occurrence. On a git failure execFileSync throws with stderr on the
+ * error, so this only handles the success-path output; the thrown error's text
+ * is git's own, which for a pinned public URL likewise carries no secret.
+ */
+export function redactEnvSecrets(text: string): string {
+  let redacted = text;
+  for (const [name, value] of Object.entries(process.env)) {
+    if (!value || value.length < 4) {
+      continue;
+    }
+    if (!/TOKEN|SECRET|KEY|PASSWORD|PASSWD/i.test(name)) {
+      continue;
+    }
+    redacted = redacted.split(value).join("***");
+  }
+  return redacted;
+}
+
+/**
+ * Whether `src` is the clone's `.git` directory (or something inside it), used to
+ * keep git metadata out of the copied skill folder. `root` is the folder being
+ * copied; only a top-level `.git` under it is excluded, so a skill that
+ * legitimately ships a file whose path contains `.git` elsewhere is unaffected.
+ */
+function isGitPath(src: string, root: string): boolean {
+  const gitDir = join(root, ".git");
+  return src === gitDir || src.startsWith(gitDir + "/");
 }
 
 /** Splits `value` at the first `separator`; the separator is dropped. */

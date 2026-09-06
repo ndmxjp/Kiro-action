@@ -1,6 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -55,6 +62,12 @@ describe("parseSkillEntry", () => {
       sha: SHA,
       subpath: "skills/reviewer",
     });
+  });
+
+  test("rejects an http:// url as a plaintext-transport downgrade", () => {
+    expect(() =>
+      parseSkillEntry(`http://example.com/acme/skills.git#${SHA}`),
+    ).toThrow(/http:\/\/|https:\/\/ is allowed/);
   });
 
   test("parses an https url with a #sha fragment", () => {
@@ -219,7 +232,9 @@ describe("installSkill against a local fixture", () => {
   beforeAll(() => {
     workspace = mkdtempSync(join(tmpdir(), "skills-test-"));
 
-    // Build a source repo with a SKILL.md whose frontmatter name is "widget".
+    // Build a source repo that is a monorepo: a top-level SKILL.md named
+    // "widget", a subpath skill at skills/reviewer named "reviewer", and an
+    // unrelated sibling file that must NOT be copied into a subpath install.
     const src = join(workspace, "src");
     mkdirSync(src, { recursive: true });
     git(["init", "-q", "-b", "main"], src);
@@ -227,6 +242,14 @@ describe("installSkill against a local fixture", () => {
       join(src, "SKILL.md"),
       "---\nname: widget\ndescription: a test skill\n---\nDo the thing.\n",
     );
+    writeFileSync(join(src, "README.md"), "unrelated repo file\n");
+    const reviewer = join(src, "skills", "reviewer");
+    mkdirSync(reviewer, { recursive: true });
+    writeFileSync(
+      join(reviewer, "SKILL.md"),
+      "---\nname: reviewer\ndescription: a nested skill\n---\nReview it.\n",
+    );
+    writeFileSync(join(reviewer, "extra.md"), "reviewer helper\n");
     git(["add", "."], src);
     git(["commit", "-q", "-m", "add skill"], src);
     fixtureSha = git(["rev-parse", "HEAD"], src);
@@ -257,6 +280,37 @@ describe("installSkill against a local fixture", () => {
     });
     expect(skillDir).toBe(join(homedir(), ".kiro", "skills", "widget"));
     expect(skillDir.startsWith(homedir())).toBe(true);
+    // SKILL.md must sit exactly one level down, where the loader glob
+    // `skill://~/.kiro/skills/*/SKILL.md` matches it.
+    expect(existsSync(join(skillDir, "SKILL.md"))).toBe(true);
+    // The clone's `.git/` must not be copied into the installed skill folder.
+    expect(existsSync(join(skillDir, ".git"))).toBe(false);
+  });
+
+  test("installs a subpath skill flat so SKILL.md lands where the glob loads it", () => {
+    // A subpath entry: only the skills/reviewer folder is a skill. Before the
+    // fix this installed to ~/.kiro/skills/reviewer/skills/reviewer/SKILL.md —
+    // two levels too deep for the one-level glob — so the skill verified but was
+    // never loaded. It must now land at ~/.kiro/skills/reviewer/SKILL.md. This
+    // assertion fails if the flat-copy behaviour is reverted.
+    const skillDir = installSkill({
+      source: remote,
+      name: "reviewer",
+      sha: fixtureSha,
+      subpath: "skills/reviewer",
+    });
+    expect(skillDir).toBe(join(homedir(), ".kiro", "skills", "reviewer"));
+    // SKILL.md is exactly one level down, matching the glob.
+    expect(existsSync(join(skillDir, "SKILL.md"))).toBe(true);
+    expect(readSkillName(readFileSync(join(skillDir, "SKILL.md"), "utf8"))).toBe(
+      "reviewer",
+    );
+    // The nested skill's own sibling file comes along...
+    expect(existsSync(join(skillDir, "extra.md"))).toBe(true);
+    // ...but the repo's unrelated top-level files and the subpath layer do not.
+    expect(existsSync(join(skillDir, "README.md"))).toBe(false);
+    expect(existsSync(join(skillDir, "skills"))).toBe(false);
+    expect(existsSync(join(skillDir, ".git"))).toBe(false);
   });
 
   test("throws when the frontmatter name does not match the folder", () => {

@@ -225,13 +225,20 @@ in both shapes: a branch or tag is a moving ref, so pinning to a commit is what
 makes the skill you reviewed the skill that runs (the same reason `action.yml`
 pins `setup-bun` by SHA). See [security.md](security.md#agent-skills) for why.
 
-The action git-clones each skill into `~/.kiro/skills/<name>/` under the home
-directory — never into the checkout — before the CLI starts, and verifies that
-`SKILL.md` exists and that its frontmatter `name` matches the folder. Cloning
-happens here, in the action; the agent itself gets no network for it. The
-generated agent config then carries
-`resources: ["skill://~/.kiro/skills/*/SKILL.md"]`, which is how the CLI loads
-whatever landed there.
+Only `https://` clone URLs are accepted; an `http://` URL is rejected, since a
+pinned SHA does not make plaintext transport safe.
+
+The action clones each skill under the home directory — never into the checkout —
+before the CLI starts, then installs just the skill folder's own contents into
+`~/.kiro/skills/<name>/`: for a `/path/to/skill` entry that is the subpath folder,
+for a plain entry it is the repository root, and in both cases the clone's `.git/`
+and any files outside the skill folder are left behind. It verifies that
+`SKILL.md` exists at `~/.kiro/skills/<name>/SKILL.md` and that its frontmatter
+`name` matches `<name>`. Cloning happens here, in the action; the agent itself
+gets no network for it. The generated agent config then carries
+`resources: ["skill://~/.kiro/skills/*/SKILL.md"]`, whose single wildcard matches
+that one directory level, which is how the CLI loads whatever landed there — the
+subpath form included, because its `SKILL.md` sits at exactly that depth.
 
 ## Choosing an engine
 

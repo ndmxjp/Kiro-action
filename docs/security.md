@@ -76,8 +76,12 @@ Consequences worth knowing:
 
 The `skills` input installs [agentskills.io](https://agentskills.io) skills — a
 folder with a `SKILL.md` (frontmatter `name`/`description` plus instructions) —
-by cloning each into `~/.kiro/skills/<name>/` before the CLI starts. Three things
-about that are worth stating plainly:
+by cloning each over `https` (an `http://` URL is refused) and installing just
+the skill folder's own contents into `~/.kiro/skills/<name>/` before the CLI
+starts. Only that folder is installed: the clone's `.git/` and any files outside
+the skill folder are left behind, so a repository that ships a `SKILL.md`
+alongside unrelated files does not turn all of them into prompt content. Three
+things about that are worth stating plainly:
 
 - **A skill's instructions are code, so pin them.** The `SKILL.md` text is
   something the model reads and follows, exactly like a comment on an issue except
