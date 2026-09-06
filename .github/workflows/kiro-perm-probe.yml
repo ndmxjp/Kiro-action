@@ -14,6 +14,24 @@
 # (allowedCommands / deniedCommands) for per-command scoping. The question that
 # decides this action's security model is whether shell can be limited to git
 # while file writes still work.
+#
+# Round 3 (kiro-cli 2.21.1) checks two things the follow-up on the tracking
+# issue raised from a source reading of kiro-cli main, neither of which can be
+# measured off a runner:
+#   - Cases CC/DD: a DUAL-BLOCK profile (both toolsSettings AND
+#     permissions.rules, in the action's exact scoped shape) run on
+#     `--agent-engine v2` and `--agent-engine v3`. The 2.18.1 result was that v2
+#     DROPS a config carrying a permissions block; the source says the MIGRATED
+#     dual-block shape is instead accepted (to_v3_compatible_str_pretty,
+#     migration::upgrade_agent_config, is_kas_only_agent_config; kirodotdev/
+#     Kiro#10733). These cases are the decisive re-measurement: do v2 and v3
+#     each still honour their own block when the other block is also present?
+#   - Case EE: which engine a BARE `chat --no-interactive` run actually uses
+#     versus `--agent-engine v1|v2|v3`. The source reading of
+#     default_engine_choice (chat/mod.rs:700) predicts a bare run is v1, so the
+#     action now passes --agent-engine explicitly. Recorded here, not asserted.
+# The dual-block emission in src/kiro/agent-config.ts stays gated off until these
+# cases run and the outcome is written into docs/security.md.
 name: Kiro permission probe
 
 on:
@@ -564,3 +582,72 @@ jobs:
             c.on("exit", (code) => console.log(`  exit event after ${((Date.now()-t0)/1000).toFixed(1)}s, code=${code}`));
             c.on("close", () => console.log(`  close event after ${((Date.now()-t0)/1000).toFixed(1)}s`));
           ' || echo "  (the node parent was still waiting after 30s — close never fired)"
+
+      - name: "Write the dual-block probe agent config"
+        run: |
+          mkdir -p ~/.kiro/agents
+          # The action's exact scoped shape, but with BOTH blocks in one profile:
+          # execute_bash/fs_write in tools and NOT in allowedTools; writes scoped
+          # to ./** by both toolsSettings.write and a permissions fs_write rule;
+          # git allowed and curl denied by both toolsSettings.shell and the
+          # permissions shell rules. This is the migrated dual-block shape the
+          # source says KAS accepts; the 2.18.1 result was that v2 dropped a
+          # permissions-carrying config, so these cases decide whether that still
+          # holds on 2.21.1.
+          cat > ~/.kiro/agents/probe-dual.json <<'JSON'
+          {
+            "name": "probe-dual",
+            "description": "Dual-block probe: classic toolsSettings + v3 permissions in one profile",
+            "prompt": "You are running in CI. Attempt what you are asked and report each outcome verbatim, quoting any refusal.",
+            "mcpServers": {},
+            "tools": ["fs_read", "grep", "glob", "fs_write", "execute_bash"],
+            "allowedTools": ["fs_read", "grep", "glob"],
+            "toolsSettings": {
+              "write": { "allowedPaths": ["./**"] },
+              "shell": {
+                "allowedCommands": ["git status( .*)?", "git diff( .*)?"],
+                "deniedCommands": ["curl( .*)?", "wget( .*)?", "git push( .*)?"],
+                "denyByDefault": true
+              }
+            },
+            "permissions": {
+              "rules": [
+                { "capability": "fs_read", "effect": "allow" },
+                { "capability": "fs_write", "match": ["./**"], "effect": "allow" },
+                { "capability": "shell", "match": ["git status", "git status *", "git diff", "git diff *"], "effect": "allow" },
+                { "capability": "shell", "match": ["curl *", "wget *", "git push *"], "effect": "deny" }
+              ]
+            },
+            "includeMcpJson": false
+          }
+          JSON
+          kiro-cli agent validate ~/.kiro/agents/probe-dual.json || true
+          echo "--- config as written:"
+          cat ~/.kiro/agents/probe-dual.json
+
+      - name: "Case CC — dual-block profile on --agent-engine v2 (does v2 still drop it?)"
+        run: |
+          rm -f probe-write.txt /tmp/probe-outside-repo.txt
+          kiro-cli chat --no-interactive --agent-engine v2 --agent probe-dual "Attempt all three in order and report each outcome, quoting any refusal verbatim: 1. Run the shell command: git status --short  2. Run the shell command: curl -s https://example.com  3. Create a file named /tmp/probe-outside-repo.txt containing ok" || echo "EXIT=$?"
+          echo "--- outside-repo file (should be no if writes are confined): $([ -f /tmp/probe-outside-repo.txt ] && echo yes || echo no)"
+
+      - name: "Case DD — dual-block profile on --agent-engine v3 (does v3 honour permissions?)"
+        run: |
+          rm -f probe-write.txt /tmp/probe-outside-repo.txt
+          kiro-cli chat --no-interactive --agent-engine v3 --agent probe-dual "Attempt all three in order and report each outcome, quoting any refusal verbatim: 1. Run the shell command: git status --short  2. Run the shell command: curl -s https://example.com  3. Create a file named /tmp/probe-outside-repo.txt containing ok" || echo "EXIT=$?"
+          echo "--- outside-repo file (should be no if writes are confined): $([ -f /tmp/probe-outside-repo.txt ] && echo yes || echo no)"
+
+      - name: "Case EE — which engine does a bare run use, versus --agent-engine v1/v2/v3?"
+        run: |
+          # The source reading (default_engine_choice, chat/mod.rs:700) predicts a
+          # bare --no-interactive run selects v1. The runStarted event on
+          # stream-json carries the engine, so ask for it directly; fall back to
+          # whatever the CLI prints.
+          echo "=== bare (no --agent-engine flag) ==="
+          kiro-cli chat --no-interactive --agent probe-bb --output-format stream-json "Reply with the single word: done" 2>&1 | grep -iE '"engine"|runStarted|not supported|v1|v2|v3' | head -5 || echo "  (no engine line captured)"
+          for e in v1 v2 v3; do
+            echo "=== --agent-engine $e ==="
+            kiro-cli chat --no-interactive --agent-engine "$e" --agent probe-bb --output-format stream-json "Reply with the single word: done" 2>&1 | grep -iE '"engine"|runStarted|not supported' | head -3 || echo "  (no engine line captured)"
+          done
+          echo "--- for reference, what --help advertises as the default:"
+          kiro-cli chat --help 2>&1 | grep -iE "agent-engine|default" | head -5 || true

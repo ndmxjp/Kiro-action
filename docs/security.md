@@ -124,12 +124,51 @@ unrestricted shell, which is documented as such.
 
 ## The v3 engine is equivalent, and optional
 
-The CLI also ships a newer engine, reachable as `kiro-cli chat --v3` and exposed
-here as `agent_engine: v3`. It enforces the same limits through `permissions.rules`
-instead of `toolsSettings`, and this action emits whichever schema matches the
-engine — never both, since handing v2 a config with a `permissions` block made it
-drop the config entirely ("no agent with name … found. Falling back to user
-specified default").
+The CLI also ships a newer engine, reachable as `kiro-cli chat --agent-engine v3`
+(the older `--v3` spelling still works) and exposed here as `agent_engine: v3`. It
+enforces the same limits through `permissions.rules` instead of `toolsSettings`.
+
+Today this action emits whichever schema matches the engine. That was measured on
+kiro-cli 2.18.1: handing v2 a config with a `permissions` block made it drop the
+config entirely ("no agent with name … found. Falling back to user specified
+default"), so the two schemas were kept apart, one per engine and never both.
+
+A source-level reading of kiro-cli main / 2.21.1 (from the follow-up on the
+tracking issue) revises that. `to_v3_compatible_str_pretty`
+(`cli/agent/mod.rs:618-629`) shows KAS ignoring a config that carries the
+classic-only trust fields (`allowedTools`, `toolsSettings`) *without* a
+`permissions` block — which is the silent drop reported in
+[kirodotdev/Kiro#10733](https://github.com/kirodotdev/Kiro/issues/10733), and it
+is **intended, not a bug** (the classic engine uses `is_kas_only_agent_config` to
+detect KAS-only configs rather than hard-rejecting a mixed one). The supported
+shape is a **dual-block profile**: the classic fields *plus* a derived
+`permissions` block, exactly what `migration::upgrade_agent_config` produces —
+it derives the `permissions` block from the classic fields while preserving them,
+so one profile works on both engines.
+
+This action is moving toward emitting both blocks so a single profile is
+engine-agnostic. The code can already build a dual-block profile, but it is
+**gated off by default**: the committed behaviour still emits one schema per
+engine until the dual-block shape is re-measured on 2.21.1 with
+`.github/workflows/kiro-perm-probe.yml` (the 2.18.1 drop was measured on the
+*unmigrated* shape; the migrated dual-block shape is the decisive re-measurement,
+and it has not run in this repo yet). This is source-derived and pending that
+probe.
+
+### Engine naming
+
+Historically the action passed no `--agent-engine` flag and only added `--v3` for
+v3, leaving v2 to the CLI default. A source-level reading of `default_engine_choice`
+(kiro-cli `chat/mod.rs:700`) shows that default is **v1** for a bare
+`--no-interactive` / non-tty run unless a rollout feature is on, while `--help`
+advertises v2 — so `agent_engine: v2` in this action was in fact selecting the v1
+engine in CLI terms, and every earlier measurement here was made on that engine.
+The action now passes `--agent-engine <engine>` explicitly, so the engine is
+unambiguous. Accepted values are v1/v2/v3; the machine-readable `stream-json`
+output the tracking issue is about only runs on v2 or v3. This finding is
+source-derived (`chat/mod.rs:700`); which engine a bare run actually selects is
+being confirmed by a new round in `kiro-perm-probe.yml`, not asserted from a local
+measurement.
 
 Two v3 quirks are worth knowing, both measured:
 
@@ -150,10 +189,13 @@ Two v3 quirks are worth knowing, both measured:
   defence if the leak returns or an older CLI is pinned with
   `path_to_kiro_cli_executable`.
 
-v3 is not the default because 3.0 is documented as early access, `includeMcpJson`
-widens what gets loaded, and its registry is fragile in ways others have hit —
-kirodotdev/Kiro#10733 has it silently dropping any agent config without a
-`permissions` block while `agent validate` still exits 0.
+v3 is not the default because 3.0 is documented as early access and
+`includeMcpJson` widens what gets loaded. kirodotdev/Kiro#10733 has it silently
+dropping any agent config without a `permissions` block while `agent validate`
+still exits 0; the source reading above shows that drop is intended (KAS ignores a
+classic-only config), which is why the dual-block profile — classic fields plus a
+derived `permissions` block — is the shape this action is moving toward rather
+than a bug to route around.
 
 ## Credentials
 

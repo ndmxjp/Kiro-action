@@ -207,6 +207,17 @@ skipped with a warning rather than failing the run.
 | `allowed_shell_commands`        | ignored                      | enforced per command |
 | Writes confined to the checkout | no                           | yes                  |
 
+The action passes the engine to the CLI as `--agent-engine <value>` rather than
+relying on the CLI default. Accepted values are `v1`, `v2` (the documented
+default here), and `v3`. Naming it matters because the CLI default is not what its
+`--help` advertises: a source reading of `default_engine_choice`
+(kiro-cli `chat/mod.rs:700`) shows a bare `--no-interactive` run selecting `v1`,
+so `agent_engine: v2` used to run on `v1` in CLI terms until the flag was passed
+explicitly. The machine-readable `stream-json` output the CLI now ships only runs
+on `v2` or `v3`. This is source-derived; which engine a bare run selects is being
+confirmed by a round in `.github/workflows/kiro-perm-probe.yml`. See
+[security.md](security.md) for the schema each engine reads.
+
 Use the default for anything that reports back to an issue or pull request. Use
 `v3` for agent-mode automation that needs to run commands:
 

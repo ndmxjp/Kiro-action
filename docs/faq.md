@@ -79,9 +79,14 @@ longer is. kiro-cli 2.21.1 ships `--output-format stream-json` — the run's ACP
 events as JSON Lines on stdout, measured here as clean JSONL with no ANSI, tool
 calls carrying the exact command and its result, and a `runFinished` event with
 the final answer (the upstream issue is still open, but the flag exists). This
-action does not use it yet: it requires `--agent-engine v2` or `v3` to be passed
-explicitly, and adopting it means redesigning how progress reaches the tracking
-comment.
+action does not use it yet: it requires `--agent-engine v2` or `v3` (the action
+now passes `--agent-engine` explicitly, so that half is in place), and adopting it
+means redesigning how progress reaches the tracking comment. That redesign — the
+action parsing the stream and driving an ACP client to render progress and to
+decide permissions itself (v3 does send `session/request_permission`, and KAS
+asks the client whenever its policy evaluates to `ask`) — is a separate workstream
+from the schema and engine-naming changes here; it is where the structured-progress
+value lives, and it is tracked on its own.
 
 Bugs found while building this action and reported upstream:
 [#10876](https://github.com/kirodotdev/Kiro/issues/10876) (v3 ignores MCP servers
@@ -104,6 +109,16 @@ permission the CI server is skipped with a warning.
 That is the CLI failing to start an MCP server. The action passes
 `--require-mcp-startup` so this surfaces instead of silently running without the
 comment tool. The captured output (`execution_file`) has the server's stderr.
+
+One caveat, source-derived from the kiro-cli follow-up: `--require-mcp-startup` is
+`matches!(agent_engine, AgentEngine::V2)` at `launch.rs:2506` ("V2 only — KAS owns
+its own MCP lifecycle"), so on `v3` it silently no-ops and the run can start
+before the MCP server is up. That race is a confirmed upstream bug (SIM
+P506773261) with a launcher-side fix on a fork branch
+(`fix/headless-v3-require-mcp-startup`, verified against KAS 0.58.7, PR not yet
+opened) that will give `v3` the same exit-3 contract. Until it ships, do not rely
+on `--require-mcp-startup` on `v3`; `v2` (the default here) enforces the gate as
+described.
 
 ## It ran for too long
 

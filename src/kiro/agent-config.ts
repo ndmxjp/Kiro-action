@@ -205,6 +205,36 @@ export type BuildAgentConfigParams = {
   extraShellCommands: string;
   model: string;
   systemPrompt: string;
+  /**
+   * Emit BOTH the classic block (toolsSettings) AND the derived permissions
+   * block in one profile, regardless of engine, instead of one schema per
+   * engine.
+   *
+   * Off by default, so the committed behaviour is unchanged: v2 gets
+   * toolsSettings only, v3 gets permissions only. The dual-block shape is the
+   * source-derived target described below, but it is NOT YET MEASURED on
+   * 2.21.1 in this repo's probe, so it stays off until
+   * .github/workflows/kiro-perm-probe.yml confirms it.
+   *
+   * Source pointers (kiro-cli main / 2.21.1, from the issue follow-up comment):
+   *   - `to_v3_compatible_str_pretty` (cli/agent/mod.rs:618-629): KAS ignores a
+   *     config that carries the classic-only trust fields (allowedTools,
+   *     toolsSettings) without a `permissions` block. This is the silent drop
+   *     seen in kirodotdev/Kiro#10733, and it is INTENDED, not a bug.
+   *   - `agent::agent_config::migration::migrate::upgrade_agent_config` derives
+   *     the `permissions` block and V3 tool tags from the classic fields WHILE
+   *     PRESERVING them, so both blocks in one profile is the intended
+   *     dual-engine shape.
+   *   - The classic engine uses `is_kas_only_agent_config` to detect KAS-only
+   *     configs rather than hard-rejecting a dual-block one.
+   *
+   * The historical 2.18.1 measurement (v2 dropped a permissions-carrying
+   * config) is why this is gated rather than flipped: the dual-block shape is
+   * the MIGRATED shape (classic + derived permissions), which the source says
+   * is accepted, and that has to be re-measured on 2.21.1 before it becomes the
+   * default.
+   */
+  emitDualSchema?: boolean;
 };
 
 export function buildAgentConfig({
@@ -215,6 +245,7 @@ export function buildAgentConfig({
   extraShellCommands,
   model,
   systemPrompt,
+  emitDualSchema = false,
 }: BuildAgentConfigParams): KiroAgentConfig {
   // `@server` grants every tool exposed by that MCP server. Verified on v2:
   // with `allowedTools: ["@probe"]` the server's tool was callable headlessly.
@@ -237,6 +268,26 @@ export function buildAgentConfig({
   // this action's own MCP servers, whose tools do exactly one thing each.
   const trusted = [...READ_TOOLS, ...mcpToolNames, ...extra];
 
+  // Both blocks are derived the same way whatever the emission choice, so the
+  // dual-block path can never carry rules that disagree with the single-schema
+  // path: the classic toolsSettings and the v3 permissions.rules are the two
+  // renderings of one policy.
+  const toolsSettings = buildV2ToolsSettings(shellPatterns);
+  const permissions = {
+    rules: buildV3Rules(shellPatterns, Object.keys(mcpServers)),
+  };
+
+  // Emission. The default is unchanged: one schema per engine (v2 ->
+  // toolsSettings, v3 -> permissions), because the dual-block shape below is
+  // source-derived and NOT YET MEASURED on 2.21.1 here (see emitDualSchema).
+  // The dual-block path writes BOTH blocks in one profile so a single profile
+  // works on both engines, which is the migrated shape the source describes.
+  const schema = emitDualSchema
+    ? { toolsSettings, permissions }
+    : engine === "v3"
+      ? { permissions }
+      : { toolsSettings };
+
   return {
     name: KIRO_AGENT_NAME,
     description: `GitHub Actions agent (${mode} mode) created by kiro-action`,
@@ -245,13 +296,7 @@ export function buildAgentConfig({
     tools: dedupe(tools),
     allowedTools: dedupe(trusted),
     includeMcpJson: engine === "v3",
-    ...(engine === "v3"
-      ? {
-          permissions: {
-            rules: buildV3Rules(shellPatterns, Object.keys(mcpServers)),
-          },
-        }
-      : { toolsSettings: buildV2ToolsSettings(shellPatterns) }),
+    ...schema,
     ...(model ? { model } : {}),
   };
 }
@@ -265,7 +310,7 @@ export function buildAgentConfig({
  * name. `denyByDefault` makes anything unlisted a refusal rather than a prompt,
  * which in headless mode is the same outcome but a clearer one.
  */
-function buildV2ToolsSettings(shellPatterns: string[]): ToolsSettings {
+export function buildV2ToolsSettings(shellPatterns: string[]): ToolsSettings {
   return {
     // Confine writes to the checkout. Without this the agent could write to
     // $HOME, and from there to its own configuration.
@@ -289,7 +334,7 @@ function buildV2ToolsSettings(shellPatterns: string[]): ToolsSettings {
  * default), and a `shell` deny rule blocked `curl`, naming the agent profile as
  * its source.
  */
-function buildV3Rules(
+export function buildV3Rules(
   shellPatterns: string[],
   mcpServerNames: string[],
 ): PermissionRule[] {

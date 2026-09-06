@@ -47,7 +47,26 @@ export type KiroRunResult = {
 export type RunKiroParams = {
   kiroCommand: string;
   agentName: string;
-  /** "v3" adds --v3, selecting the KAS agent engine. */
+  /**
+   * Which agent engine to select, passed through verbatim as `--agent-engine
+   * <engine>`.
+   *
+   * Passed explicitly rather than left to the CLI default because the default is
+   * not what the flag's help text suggests: on kiro-cli 2.21.1
+   * `default_engine_choice` (chat/mod.rs:700) returns V1 for a bare
+   * `--no-interactive` / non-tty run unless a rollout feature is on, while
+   * `--help` advertises v2. So a bare invocation ran on V1, which meant
+   * `agent_engine: v2` in this action actually selected V1 in CLI terms. Naming
+   * the engine removes the ambiguity, and stream-json (the follow-up on
+   * kirodotdev/Kiro#5423) only runs on v2 or v3, so it has to be explicit anyway.
+   * Source-derived from the issue comment's reading of kiro-cli main; the bare
+   * run's effective engine is being confirmed by the new round in
+   * .github/workflows/kiro-perm-probe.yml.
+   *
+   * 2.21.1 accepts `--agent-engine <v1|v2|v3>` alongside the older `--v3`
+   * spelling; `--agent-engine` is preferred because it names every engine, not
+   * only v3.
+   */
   engine: "v2" | "v3";
   /**
    * Treat this many seconds of silence as the run having finished — a safety net
@@ -89,7 +108,12 @@ export async function runKiro(params: RunKiroParams): Promise<KiroRunResult> {
   const args = [
     "chat",
     "--no-interactive",
-    ...(engine === "v3" ? ["--v3"] : []),
+    // Name the engine outright: a bare --no-interactive run selects V1 (see the
+    // engine doc on RunKiroParams), so relying on the default would have run on
+    // an engine no one asked for. `--agent-engine` is the 2.21.1 spelling that
+    // covers v1/v2/v3; the older `--v3` only names one of them.
+    "--agent-engine",
+    engine,
     "--agent",
     agentName,
     ...(requireMcpStartup ? ["--require-mcp-startup"] : []),
