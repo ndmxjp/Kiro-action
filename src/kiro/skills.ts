@@ -7,7 +7,7 @@ import {
   readFileSync,
   rmSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -271,8 +271,10 @@ export function readSkillName(skillMd: string): string | undefined {
  * and filesystem work. It:
  *
  *   1. computes the final target ~/.kiro/skills/<name>/ under $HOME,
- *   2. clones the source into a throwaway staging directory (also under $HOME)
- *      and `git checkout <sha>` (a plain shallow clone lands on the default
+ *   2. clones the source into a throwaway staging directory OUTSIDE the skills
+ *      root (under $RUNNER_TEMP, falling back to the OS temp dir, so a crash
+ *      mid-install can never leave a partial clone under the scanned skills
+ *      root) and `git checkout <sha>` (a plain shallow clone lands on the default
  *      branch; the checkout pins the commit, and `git fetch --depth 1 <sha>`
  *      first is what makes an arbitrary commit reachable in a shallow clone),
  *   3. locates the skill folder inside the clone (the repo root, or `subpath`
@@ -301,14 +303,22 @@ export function installSkill(entry: SkillEntry): string {
 
   const target = join(skillsRoot(), entry.name);
 
-  // Clone into a sibling staging directory rather than the target itself, so
+  // Clone into a throwaway staging directory rather than the target itself, so
   // that only the resolved skill folder's contents, not the whole clone with
-  // its .git/, end up under ~/.kiro/skills/<name>/. Both live under $HOME,
-  // never the checkout.
+  // its .git/, end up under ~/.kiro/skills/<name>/.
+  //
+  // The staging directory lives OUTSIDE the skills root — under $RUNNER_TEMP on
+  // a GitHub runner, falling back to the OS temp dir — deliberately. The loader
+  // glob scans one level below ~/.kiro/skills, so a staging directory created
+  // there (even with a dot prefix) would sit inside the scanned root, and a hard
+  // kill between mkdtemp and the finally cleanup could leave a half-populated
+  // clone under the very directory the CLI enumerates. Staging elsewhere removes
+  // that window entirely; the final install target is still ~/.kiro/skills/
+  // <name>/ under $HOME, never the checkout.
   mkdirSync(skillsRoot(), { recursive: true });
-  // A fixed prefix (not the name, which may itself contain a slash) keeps the
-  // staging directory a single entry directly under the skills root.
-  const staging = mkdtempSync(join(skillsRoot(), ".staging-"));
+  const staging = mkdtempSync(
+    join(process.env.RUNNER_TEMP || tmpdir(), "kiro-skill-"),
+  );
 
   try {
     console.log(`Installing skill "${entry.name}" from ${entry.source}`);
