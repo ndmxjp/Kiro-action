@@ -150,6 +150,86 @@ widens what gets loaded, and its registry is fragile in ways others have hit —
 kirodotdev/Kiro#10733 has it silently dropping any agent config without a
 `permissions` block while `agent validate` still exits 0.
 
+### Engine naming, re-measured on kiro-cli 2.21.1
+
+The engine flag changed shape in 2.21.1: `--agent-engine <v1|v2|v3>` now sits
+alongside the older `--v3`, and `--help` calls v2 the default even though a bare
+run is rejected as "the v1 engine". So the mapping was re-measured with the
+action's own scoped-profile shape (`execute_bash`/`fs_write` present in `tools`
+but not `allowedTools`, scoped by `toolsSettings` on v1/v2 and `permissions.rules`
+on v3), asking for one allowed op (`git status --short`), one denied op (`curl`),
+and one out-of-scope write (`/tmp`). Measured on **kiro-cli 2.21.1 / KAS 0.58.7**:
+
+| Operation                | bare (no flag)                                                                                         | `--agent-engine v1` | `--agent-engine v2`                                        | `--agent-engine v3`                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `git status --short`     | allowed                                                                                                | allowed             | **cancelled** ("cancelled by user")                        | allowed (via v3's built-in read-only defaults)                                |
+| `curl` (denied)          | denied                                                                                                 | denied              | denied                                                     | denied                                                                        |
+| write to `/tmp` (scoped) | denied                                                                                                 | denied              | **cancelled**                                              | denied                                                                        |
+| refusal wording          | "Command execute_bash is rejected because it matches one or more rules on the denied list: curl( .*)?" | same as bare        | different wording; one denial cancels its allowed siblings | "tool permission approval is not supported in non-interactive mode"           |
+
+What this establishes:
+
+- **A bare run is the v1 engine**, and `--agent-engine v1` is identical to it.
+  The `--help` text calling v2 the default is misleading for a non-interactive
+  run.
+- **v2 is a genuinely different engine.** It honours `toolsSettings`, but when it
+  batches calls in parallel and one is denied it **cancels the allowed siblings
+  too** ("cancelled by user"), so `git status` did not run in the same turn as a
+  denied `curl`. That batch-cancel is why the action does not run on v2 by
+  default.
+- **v3 ignores `toolsSettings` entirely** and falls through to a headless denial
+  ("tool permission approval is not supported in non-interactive mode"). `git
+  status` still ran on v3, but through v3's own built-in read-only defaults rather
+  than anything this action configured, so v3 gives weaker, not stronger,
+  guarantees for the scoped profile.
+
+These numbers come from the issue thread's rounds, not from a run inside this
+change. The action's committed default behaviour is **unchanged**; the new
+`kiro-perm-probe.yml` rounds (Cases CC..FF) must be run in CI to confirm them
+before anything about the default is reconsidered.
+
+### ACP, and why `_kiro/mcp/status` matters for security
+
+kiro-cli 2.21.1 also answers the ACP protocol (`kiro-cli acp`), of which
+`--output-format stream-json` is the read-only projection (both carry
+`payloadSchema: "acp"`). Two ACP facts bear directly on this action's safety, both
+measured on **kiro-cli 2.21.1 / KAS 0.58.7** and both pending an in-CI re-run of
+the probe:
+
+- **`_kiro/mcp/status` is the only surface that reports MCP connection state.**
+  The stream-json projection carries no MCP-state events at all, so a client that
+  needs to know whether `github_comment` and `github_ci` actually connected can
+  only learn it over ACP, by watching `_kiro/mcp/status` notifications (each
+  carries every server's `connecting`/`connected`/`disabled` state and tool
+  count).
+- **`--require-mcp-startup` is NOT enforced on v3.** An agent whose MCP server
+  binary does not exist exits **0** on `--agent-engine v3` (it exits **3** on the
+  bare/v1 engine, as documented in the FAQ). On v3 today that means a tag-mode run
+  whose `github_comment` server lost the startup race would report nothing and
+  still exit green. The replacement is for an ACP client to **wait until
+  `_kiro/mcp/status` reports our servers `connected`** before prompting, and fail
+  the run loudly on a timeout — this is what must stand in for
+  `--require-mcp-startup` on v3. `github_comment` remaining fatal is a security
+  invariant, so this gate is not optional.
+
+There is also a config-surface benefit. Over ACP, MCP servers are passed directly
+in `session/new.mcpServers` (accepted with `origin: "client"`), so on v3 the
+checkout's `mcp.json` is never merged: no `~/.kiro/settings/mcp.json`, no
+`includeMcpJson`, and therefore one fewer path for a pull request to influence
+what the CLI loads. Contrast the current `--v3` path above, which relies on
+`~/.kiro/settings/mcp.json` + `includeMcpJson` and so depends on the config
+restore (`src/github/operations/restore-config.ts`) to keep a PR-authored
+`mcp.json` out. If the action moves to an ACP client on v3, the `mcp.json` merge
+that motivates part of that restore goes away for the MCP case; the restore still
+matters for the other paths it covers, so the two must stay consistent.
+
+One ACP behaviour is still **unverified**: `session/request_permission` never
+arrived in the measured rounds (an `fs_read` + mcp-allow profile that was asked to
+run a denied command produced a headless denial, not a permission request). So the
+idea of "decide permissions in the action's ACP client" cannot be relied on yet;
+Case FF exists to provoke a denial and see whether the request ever surfaces, and
+until it does the action keeps denying through the profile.
+
 ## Credentials
 
 - `KIRO_API_KEY` is registered as a masked secret and never written to the

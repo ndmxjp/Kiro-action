@@ -48,6 +48,7 @@ the run.
 | `allowed_tools`          | `""`    | Comma-separated extra tool names, e.g. `web_search`, or `@my_server` for every tool of an MCP server. |
 | `allowed_shell_commands` | `""`    | Comma-separated extra shell patterns, e.g. `bun test *,bun run build`.                                |
 | `trust_all_tools`        | `false` | Passes `--trust-all-tools`. Removes tool gating entirely — see [security.md](security.md).            |
+| `output_format`          | `text`  | `text` runs `kiro-cli chat`; `stream-json`/`acp` select the experimental in-action progress renderer. See below. |
 | `kiro_args`              | `""`    | Extra arguments appended to `kiro-cli chat`. Parsed into argv; shell operators (`&&`, `;`, `          | `) are rejected because nothing here goes through a shell. |
 | `timeout_minutes`        | `""`    | Sends `SIGTERM` after this many minutes, then `SIGKILL` ten seconds later.                            |
 
@@ -182,6 +183,46 @@ with:
   agent_engine: v3
   allowed_shell_commands: "bun install,bun test *"
 ```
+
+## Rendering progress in the action (experimental)
+
+By default (`output_format: text`) the action runs
+`kiro-cli chat --no-interactive` and captures its output. Progress reaches the
+tracking comment only when the model calls `update_kiro_comment`.
+
+Setting `output_format: stream-json` or `output_format: acp` selects a different
+path: the action speaks the CLI's ACP surface (JSON-RPC over stdio) itself,
+through a small built-in client. It sends `initialize` and `session/new` — passing
+this action's own MCP servers directly, so the checkout's
+`.kiro/settings/mcp.json` is never merged — then **waits for every one of those
+servers to report `connected`** (over `_kiro/mcp/status`) before it prompts, and
+renders the streamed events into the execution file. Both `stream-json` and `acp`
+select the same client; ACP is the surface actually used, because it is the only
+one that reports MCP connection state.
+
+```yaml
+with:
+  kiro_api_key: ${{ secrets.KIRO_API_KEY }}
+  agent_engine: v3
+  output_format: acp
+```
+
+This is **experimental and opt-in**. The default is unchanged. What it changes and
+does not:
+
+- The MCP-connect wait replaces `--require-mcp-startup` (which the CLI does not
+  enforce on `v3`): if a server this action provides never connects, the run
+  **fails loudly** rather than reporting nothing with a green exit code. In tag
+  mode `github_comment` is one of those servers, so its failure to connect is
+  fatal, exactly as before.
+- Everything persisted — the raw protocol trace and the rendered log — is passed
+  through the same secret redaction as the text path before it is written or
+  surfaced.
+- The deny list, the per-command shell scoping, `trust_all_tools`, and the
+  write confinement are **all unchanged**. `output_format` only changes how the
+  action talks to the CLI, not what the agent is allowed to do.
+
+See [security.md](security.md) for how the tool gating is enforced and measured.
 
 ## Custom MCP servers
 

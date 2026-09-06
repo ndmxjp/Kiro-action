@@ -86,5 +86,6 @@ export async function prepareAgentMode({
     prompt,
     agentPath,
     hasMcpServers: Object.keys(mcpServers).length > 0,
+    mcpServers,
   };
 }

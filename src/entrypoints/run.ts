@@ -143,12 +143,21 @@ export async function run() {
       promptFile,
       outputFile,
       effort: context.inputs.effort,
+      // On the text path this becomes --require-mcp-startup. On the ACP path it
+      // gates whether the run waits for the _kiro/mcp/status "connected" report
+      // before prompting (which replaces --require-mcp-startup, unenforced on
+      // v3): in tag mode github_comment is mandatory, so hasMcpServers keeps its
+      // failure-to-connect fatal.
       requireMcpStartup: prepared.hasMcpServers,
       trustAllTools: context.inputs.trustAllTools,
       extraArgs: parseKiroArgs(process.env.KIRO_ARGS),
       timeoutMinutes: parseTimeout(process.env.TIMEOUT_MINUTES),
       // Only v3 needs this: it finishes its answer and then never exits.
       idleTimeoutSeconds: context.inputs.agentEngine === "v3" ? 90 : undefined,
+      outputFormat: context.inputs.outputFormat,
+      // The ACP path passes these directly in session/new; the text path ignores
+      // them (it sources servers from the generated agent config).
+      mcpServers: prepared.mcpServers,
     });
 
     core.setOutput("execution_file", kiroResult.outputFile);

@@ -87,6 +87,10 @@ inputs:
     description: "Kiro agent engine: 'v2' (default) or 'v3'. Both scope the shell per command and confine writes to the checkout — v2 through toolsSettings, v3 through permissions.rules. v3 is early access and reads MCP servers from ~/.kiro/settings/mcp.json rather than the agent profile, which also merges the checkout's copy, so stay on v2 unless you need something only v3 has. See docs/security.md."
     required: false
     default: "v2"
+  output_format:
+    description: "How the action drives the CLI. 'text' (default) runs 'kiro-cli chat --no-interactive' and captures its output. 'acp' selects an in-action progress renderer driven by a minimal ACP client: the action speaks the protocol over stdio, waits for its MCP servers to report connected before prompting, and renders the streamed events into the execution file. 'stream-json' is accepted as an alias for 'acp' and selects the same ACP client path (there is no separate stream-json reader). Experimental and opt-in; the deny list, per-command shell scoping, and write confinement are unchanged whichever value is set. See docs/configuration.md."
+    required: false
+    default: "text"
   trust_all_tools:
     description: "Pass --trust-all-tools to the CLI. This removes tool gating entirely — the agent can run any command, including curl. Only use it on trusted input."
     required: false
@@ -231,6 +235,7 @@ runs:
         ALLOWED_SHELL_COMMANDS: ${{ inputs.allowed_shell_commands }}
         TRUST_ALL_TOOLS: ${{ inputs.trust_all_tools }}
         AGENT_ENGINE: ${{ inputs.agent_engine }}
+        OUTPUT_FORMAT: ${{ inputs.output_format }}
         KIRO_ARGS: ${{ inputs.kiro_args }}
         TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
         # Filtering and identity

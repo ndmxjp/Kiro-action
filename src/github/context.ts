@@ -111,6 +111,16 @@ export type ActionInputs = {
    * its reporting channel there. See docs/security.md.
    */
   agentEngine: "v2" | "v3";
+  /**
+   * How the action drives the CLI. "text" (the default) keeps the committed
+   * `chat --no-interactive` invocation. "acp" selects the in-action progress
+   * renderer built on a minimal ACP client (see src/kiro/run.ts); "stream-json"
+   * is accepted as an alias for "acp" and selects that same ACP client path
+   * (there is no separate stream-json reader). Experimental and opt-in; the
+   * deny/scope invariants are unchanged whichever value is set. See
+   * docs/configuration.md.
+   */
+  outputFormat: "text" | "acp";
 };
 
 // Common fields shared by all context types
@@ -187,6 +197,13 @@ export function parseGitHubContext(): GitHubContext {
       trustAllTools: process.env.TRUST_ALL_TOOLS === "true",
       workingIndicator: process.env.WORKING_INDICATOR ?? "",
       agentEngine: process.env.AGENT_ENGINE === "v3" ? "v3" : "v2",
+      // "stream-json" and "acp" both select the ACP client path; anything else
+      // (including the default) keeps the committed text path unchanged.
+      outputFormat:
+        process.env.OUTPUT_FORMAT === "acp" ||
+        process.env.OUTPUT_FORMAT === "stream-json"
+          ? "acp"
+          : "text",
     } satisfies ActionInputs,
   };
 
