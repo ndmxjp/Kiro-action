@@ -52,8 +52,10 @@ export type RunKiroParams = {
   /**
    * Treat this many seconds of silence as the run having finished — a safety net
    * for a CLI that stalls without exiting. Not the mechanism that ends a normal
-   * v3 run: there the CLI exits by itself and it is the KAS server it leaves
-   * behind that has to be cleaned up (see below).
+   * run on any engine; it exists because kiro-cli 2.18.1's v3 engine left a KAS
+   * server behind that held the pipes (kirodotdev/Kiro#10877), and a run that
+   * has gone quiet is the only signal this process would have had. Fixed in
+   * 2.21.1 (kiro-team/kiro-cli#4293), kept as a guard against a regression.
    */
   idleTimeoutSeconds?: number;
   prompt: string;
@@ -108,11 +110,14 @@ export async function runKiro(params: RunKiroParams): Promise<KiroRunResult> {
   // No shell: the prompt and every argument are passed straight to the binary,
   // so nothing in them can be reinterpreted as a shell command.
   // detached puts the CLI in its own process group, so the whole group can be
-  // signalled at once. That matters because on v3 the CLI starts a KAS server as
-  // a grandchild which outlives it: measured, the CLI printed its answer and
-  // exited, and the server stayed up holding stdout. Signalling the CLI alone
-  // does nothing (it is already gone), and leaving the group alive keeps this
-  // process from exiting.
+  // signalled at once. That mattered on kiro-cli 2.18.1, whose v3 engine started
+  // a KAS server as a grandchild that outlived it: measured, the CLI printed its
+  // answer and exited, and the server stayed up holding stdout. Signalling the
+  // CLI alone did nothing (it was already gone), and leaving the group alive kept
+  // this process from exiting. 2.21.1 fixed the leak (kirodotdev/Kiro#10877;
+  // measured here: --no-interactive --v3 exits in ~10 s with nothing left
+  // behind). The group handling stays because it is cheap, harmless on a fixed
+  // CLI, and the only defence if the leak comes back or an older CLI is pinned.
   const child = spawn(kiroCommand, args, {
     stdio: ["ignore", "pipe", "pipe"],
     env: process.env,
@@ -210,10 +215,11 @@ export async function runKiro(params: RunKiroParams): Promise<KiroRunResult> {
   // pipes have been drained.
   await new Promise((resolve) => setTimeout(resolve, 250));
 
-  // Reap anything the CLI left behind, then let go of the pipes. Without this the
-  // surviving KAS server keeps the stdio streams open, and an open stream keeps
-  // this process alive: the action would finish all of its work and then hang
-  // until the job timed out, which is exactly what happened before this was here.
+  // Reap anything the CLI left behind, then let go of the pipes. On 2.18.1's v3
+  // the surviving KAS server kept the stdio streams open, and an open stream
+  // keeps this process alive: the action finished all of its work and then hung
+  // until the job timed out, which is exactly what happened before this was
+  // here. Harmless when there is nothing to reap.
   terminate();
   child.stdout?.destroy();
   child.stderr?.destroy();
@@ -229,7 +235,7 @@ export async function runKiro(params: RunKiroParams): Promise<KiroRunResult> {
     output += `\n[kiro-action: terminated after the ${timeoutMinutes} minute timeout]\n`;
   }
   if (finishedByIdle) {
-    output += `\n[kiro-action: no output for ${idleTimeoutSeconds}s, so the CLI was shut down; the v3 engine does not exit on its own in headless mode]\n`;
+    output += `\n[kiro-action: no output for ${idleTimeoutSeconds}s, so the CLI was shut down; this is a safety net for a CLI that stalls after answering]\n`;
   }
 
   await mkdir(dirname(outputFile), { recursive: true });

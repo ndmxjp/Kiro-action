@@ -86,8 +86,8 @@ comment.
 Bugs found while building this action and reported upstream:
 [#10876](https://github.com/kirodotdev/Kiro/issues/10876) (v3 ignores MCP servers
 declared in an agent profile) and
-[#10877](https://github.com/kirodotdev/Kiro/issues/10877) (v3 leaks a KAS server
-per run, which holds the caller's stdout). ANSI escapes in piped
+[#10877](https://github.com/kirodotdev/Kiro/issues/10877) (v3 leaked a KAS server
+per run, which held the caller's stdout; fixed in 2.21.1). ANSI escapes in piped
 `--no-interactive` output was already reported as
 [#8352](https://github.com/kirodotdev/Kiro/issues/8352); this action strips them.
 
@@ -111,10 +111,11 @@ Set `timeout_minutes`. The action terminates the CLI — the whole process group
 a surviving child cannot keep the job alive — and still updates the tracking
 comment with the failure.
 
-On `agent_engine: v3` the CLI leaves a KAS server running after it answers. The
-action kills the whole process group and releases the pipes, so that does not stall
-the job. If a run ever goes quiet without finishing, 90 seconds of silence is
-treated as completion and the execution log says so.
+On kiro-cli 2.18.1, `agent_engine: v3` left a KAS server running after it
+answered; 2.21.1 fixed that. The action still kills the whole process group and
+releases the pipes at the end of a run, so a stray child cannot stall the job on
+any version. On v3, 90 seconds of silence is additionally treated as completion
+and the execution log says so — a guard from before the fix that costs nothing now.
 
 ## Where do I report a problem with this action?
 

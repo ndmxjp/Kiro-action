@@ -102,7 +102,7 @@ describe("runKiro lifecycle", () => {
 
     const output = readFileSync(outputFile, "utf8");
     expect(output).toContain("the answer");
-    expect(output).toContain("does not exit on its own");
+    expect(output).toContain("safety net for a CLI that stalls");
   });
 
   test("returns promptly when the CLI exits but leaves a server holding the pipes", async () => {
