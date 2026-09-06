@@ -72,6 +72,44 @@ Consequences worth knowing:
   repo-relative script) still executes the PR's version. Keep restored hooks
   self-contained.
 
+## Agent Skills
+
+The `skills` input installs [agentskills.io](https://agentskills.io) skills — a
+folder with a `SKILL.md` (frontmatter `name`/`description` plus instructions) —
+by cloning each into `~/.kiro/skills/<name>/` before the CLI starts. Three things
+about that are worth stating plainly:
+
+- **A skill's instructions are code, so pin them.** The `SKILL.md` text is
+  something the model reads and follows, exactly like a comment on an issue except
+  chosen by the workflow author. Trust one the way you trust a `uses:` line: it is
+  code, and it should be pinned. That is why a commit SHA is required and a moving
+  branch or tag is refused — the same reason `setup-bun` is pinned by SHA in
+  `action.yml`. A skill you reviewed at one commit is not the skill that runs if
+  the ref moves under you.
+- **`scripts/` inside a skill are not runnable on their own.** A skill may ship a
+  `scripts/` directory, and upstream's plugin format can carry hooks that fire, so
+  a reader may assume the same here. It does not. Nothing in a skill executes
+  unless `allowed_shell_commands` already permits that command — the shell
+  allow-list applies to a command a skill suggests just as it does to any other,
+  and deny is still evaluated first. A skill can tell the model to run something;
+  whether it runs is decided entirely by the same gate described below.
+- **Installed skills are prompt content, chosen by the workflow author.** Because
+  the model reads them, a skill is a prompt-injection surface. But it is one the
+  _workflow author_ selected, not one a PR author can introduce: the `skills`
+  input is set in the workflow file, and the action clones from the pinned commit,
+  not from the checkout. That puts it on the right side of the line the rest of
+  this page draws — the same side as `custom_instructions` — but it is a channel,
+  so it is written down here.
+
+This is not a new channel so much as a named one. `~/.kiro/skills/` (and the
+checkout's `.kiro/skills/`) is already prompt content the CLI would load in every
+run today, and on a pull request `.kiro/` is restored from the base branch before
+the CLI starts (see above), so a PR author cannot smuggle a skill in that way.
+The `skills` input adds a deliberate, SHA-pinned path into that same directory
+under `$HOME`. Skills are cloned into HOME, never the checkout, for the same
+reason the generated agent config is: the checkout is attacker-controlled on a
+pull request and is swept into the commit this action makes.
+
 ## What the agent may run
 
 The agent gets read and search tools outright, a **write tool confined to the

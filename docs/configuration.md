@@ -48,6 +48,7 @@ the run.
 | `model`                  | `""`    | Recorded as `model` in the generated agent config.                                                    |
 | `allowed_tools`          | `""`    | Comma-separated extra tool names, e.g. `web_search`, or `@my_server` for every tool of an MCP server. |
 | `allowed_shell_commands` | `""`    | Comma-separated extra shell patterns, e.g. `bun test *,bun run build`.                                |
+| `skills`                 | `""`    | Newline-separated Agent Skills, cloned before the CLI starts; SHA-pinned. See [Agent Skills](#agent-skills). |
 | `trust_all_tools`        | `false` | Passes `--trust-all-tools`. Removes tool gating entirely — see [security.md](security.md).            |
 | `kiro_args`              | `""`    | Extra arguments appended to `kiro-cli chat`. Parsed into argv; shell operators (`&&`, `;`, `          | `) are rejected because nothing here goes through a shell. |
 | `timeout_minutes`        | `""`    | Sends `SIGTERM` after this many minutes, then `SIGKILL` ten seconds later.                            |
@@ -198,6 +199,39 @@ the agent leaves in a file under `$RUNNER_TEMP`, and pushes. See
 
 If `actions: read` is missing from the job's `permissions`, the CI server is
 skipped with a warning rather than failing the run.
+
+## Agent Skills
+
+A skill is a folder following the [agentskills.io](https://agentskills.io)
+standard: a `SKILL.md` whose YAML frontmatter carries a `name` and a
+`description`, plus its instructions and any optional `scripts/`, `references/`,
+or `assets/` alongside. The `skills` input lists the skills a run should have,
+one per line:
+
+```yaml
+with:
+  kiro_api_key: ${{ secrets.KIRO_API_KEY }}
+  skills: |
+    owner/repo@0123456789abcdef0123456789abcdef01234567
+    owner/repo@0123456789abcdef0123456789abcdef01234567/path/to/skill
+    https://example.com/skills.git#89abcdef89abcdef89abcdef89abcdef89abcdef
+```
+
+Each entry is either the `owner/repo@<sha>` shorthand — expanded to a
+`https://github.com/owner/repo.git` clone URL, and optionally suffixed with
+`/path/to/skill` to pick one skill out of a larger repository — or a full
+`https://…git` URL optionally suffixed with `#<sha>`. A commit SHA is **required**
+in both shapes: a branch or tag is a moving ref, so pinning to a commit is what
+makes the skill you reviewed the skill that runs (the same reason `action.yml`
+pins `setup-bun` by SHA). See [security.md](security.md#agent-skills) for why.
+
+The action git-clones each skill into `~/.kiro/skills/<name>/` under the home
+directory — never into the checkout — before the CLI starts, and verifies that
+`SKILL.md` exists and that its frontmatter `name` matches the folder. Cloning
+happens here, in the action; the agent itself gets no network for it. The
+generated agent config then carries
+`resources: ["skill://~/.kiro/skills/*/SKILL.md"]`, which is how the CLI loads
+whatever landed there.
 
 ## Choosing an engine
 
