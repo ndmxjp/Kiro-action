@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildAgentConfig,
+  buildV2ToolsSettings,
+  buildV3Rules,
   grantedShellCommands,
   hasUnscopedShell,
   shellPatternToRegex,
@@ -250,6 +252,91 @@ describe("buildAgentConfig on the v3 engine", () => {
     expect(deny?.match).toContain("sudo *");
     expect(deny?.match).toContain("rm -rf *");
     expect(deny?.match).toContain("git push *");
+  });
+});
+
+describe("the single-schema default is not silently flipped", () => {
+  test("v2 emits toolsSettings and no permissions block", () => {
+    // The dual-block shape is source-derived but not yet measured on 2.21.1, so
+    // the committed default stays one schema per engine (see emitDualSchema).
+    const built = config({ engine: "v2" });
+
+    expect(built.toolsSettings).toBeDefined();
+    expect(built.permissions).toBeUndefined();
+  });
+
+  test("v3 emits permissions and no toolsSettings block", () => {
+    const built = config({ engine: "v3" });
+
+    expect(built.permissions).toBeDefined();
+    expect(built.toolsSettings).toBeUndefined();
+  });
+});
+
+describe("the gated dual-block profile", () => {
+  test("carries BOTH toolsSettings and permissions.rules in one profile", () => {
+    const built = withRunnerTemp("/tmp/runner", () =>
+      config({ engine: "v2", emitDualSchema: true }),
+    );
+
+    expect(built.toolsSettings).toBeDefined();
+    expect(built.permissions?.rules).toBeDefined();
+    // The engine choice no longer decides which block appears: v3 selection is
+    // the same dual profile, so one profile works on both engines.
+    const asV3 = withRunnerTemp("/tmp/runner", () =>
+      config({ engine: "v3", emitDualSchema: true }),
+    );
+    expect(asV3.toolsSettings).toBeDefined();
+    expect(asV3.permissions?.rules).toBeDefined();
+  });
+
+  test("keeps fs_write and execute_bash out of allowedTools", () => {
+    const built = config({ emitDualSchema: true });
+
+    expect(built.tools).toContain("fs_write");
+    expect(built.tools).toContain("execute_bash");
+    expect(built.allowedTools).not.toContain("fs_write");
+    expect(built.allowedTools).not.toContain("execute_bash");
+    expect(hasUnscopedShell(built)).toBe(false);
+  });
+
+  test("keeps the deny list intact in both blocks", () => {
+    const built = config({ emitDualSchema: true });
+
+    expect(built.toolsSettings?.shell?.deniedCommands).toContain(
+      "curl( .*)?",
+    );
+    expect(built.toolsSettings?.shell?.deniedCommands).toContain(
+      "git push( .*)?",
+    );
+
+    const deny = (built.permissions?.rules ?? []).find(
+      (rule) => rule.capability === "shell" && rule.effect === "deny",
+    );
+    expect(deny?.match).toContain("curl *");
+    expect(deny?.match).toContain("git push *");
+  });
+
+  test("the two derived blocks agree with buildV2ToolsSettings / buildV3Rules", () => {
+    // The dual-block profile must not carry a policy that disagrees with itself:
+    // each block is exactly what the single-schema path would have emitted.
+    const built = withRunnerTemp("/tmp/runner", () =>
+      config({
+        engine: "v2",
+        emitDualSchema: true,
+        extraShellCommands: "bun test *",
+      }),
+    );
+
+    const expectedToolsSettings = withRunnerTemp("/tmp/runner", () =>
+      buildV2ToolsSettings(["bun test *"]),
+    );
+    const expectedRules = withRunnerTemp("/tmp/runner", () =>
+      buildV3Rules(["bun test *"], Object.keys(mcpServers)),
+    );
+
+    expect(built.toolsSettings).toEqual(expectedToolsSettings);
+    expect(built.permissions?.rules).toEqual(expectedRules);
   });
 });
 

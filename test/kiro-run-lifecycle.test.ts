@@ -164,7 +164,8 @@ describe("runKiro lifecycle", () => {
     expect(result.reason).toBe("success");
     expect(output).toContain("--effort high");
     expect(output).toContain("--agent kiro-action");
-    expect(output).toContain("--v3");
+    // The engine is named outright now, not left to the CLI default.
+    expect(output).toContain("--agent-engine v3");
     // The prompt is the last argument, never piped through a shell.
     expect(output).toContain("do the thing");
   });
@@ -183,7 +184,8 @@ describe("runKiro lifecycle", () => {
     const output = readFileSync(outputFile, "utf8");
     expect(result.reason).toBe("success");
     expect(output).not.toContain("--effort");
-    // v2 is selected by the absence of the flag, not by a --v2 of its own.
+    // v2 is now named explicitly rather than selected by the absence of --v3.
+    expect(output).toContain("--agent-engine v2");
     expect(output).not.toContain("--v3");
   });
 
