@@ -4,7 +4,10 @@ import { createInitialComment } from "../../github/operations/comments/create-in
 import { updateTrackingComment } from "../../github/operations/comments/update-with-branch";
 import { setupBranch, type BranchInfo } from "../../github/operations/branch";
 import { configureGitAuth } from "../../github/operations/git-config";
-import { prepareMcpServers } from "../../mcp/prepare-mcp-config";
+import {
+  prepareMcpServers,
+  type McpServers,
+} from "../../mcp/prepare-mcp-config";
 import {
   fetchGitHubData,
   resolveTriggerTimestamp,
@@ -27,6 +30,12 @@ export type PreparedRun = {
   prompt: string;
   agentPath: string;
   hasMcpServers: boolean;
+  /**
+   * The MCP servers this run provides. The text path sources them from the
+   * generated agent config; the ACP path (output_format: acp) passes them
+   * directly in session/new, so it needs them here.
+   */
+  mcpServers: McpServers;
   /** `Co-authored-by:` trailer for the commit this action makes. */
   coAuthorLine?: string;
 };
@@ -149,6 +158,7 @@ export async function prepareTagMode({
     prompt,
     agentPath,
     hasMcpServers: Object.keys(mcpServers).length > 0,
+    mcpServers,
     coAuthorLine,
   };
 }

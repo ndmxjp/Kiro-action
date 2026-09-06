@@ -66,7 +66,7 @@ Same shape, different CLI. Differences that follow from the Kiro CLI's surface:
 | Credential                | Anthropic key, Bedrock, Vertex           | `KIRO_API_KEY` only                         |
 | MCP wiring                | `--mcp-config` flag                      | generated agent config at `~/.kiro/agents/` |
 | Tool gating               | `--allowedTools` + `acceptEdits`         | agent `allowedTools` + `permissions.rules`  |
-| Progress                  | streaming JSON, parsed into the comment  | today `update_kiro_comment`; moving to parsing the CLI stream |
+| Progress                  | streaming JSON, parsed into the comment  | `update_kiro_comment` by default; opt-in ACP stream parsing (`output_format`) |
 | Outputs                   | `structured_output`, turn-by-turn report | captured stdout in `execution_file`         |
 | Commit signing            | optional, via the GitHub API             | not supported                               |
 | Inline PR review comments | supported                                | not supported                               |
@@ -84,14 +84,17 @@ read-only projection (both carry `payloadSchema: "acp"`), and ACP is the only
 surface that reports MCP connection state (`_kiro/mcp/status`), which stream-json
 omits. That connection state is why ACP is the real target — v3 does not enforce
 `--require-mcp-startup`, so a client that needs to know the comment server
-connected has to watch `_kiro/mcp/status` itself. The plan is to render progress
-inside the action by parsing that stream (see `docs/security.md`), while keeping
-`update_kiro_comment` available as one channel. This action does not do that yet:
-these surfaces require `--agent-engine v2` or `v3` to be passed explicitly, the
-numbers above were measured on kiro-cli 2.21.1 / KAS 0.58.7 rather than re-run
-here, and adoption is gated on the `kiro-perm-probe.yml` rounds passing in CI
-across both engines. The committed behaviour is unchanged until that measurement
-lands and the default is deliberately flipped.
+connected has to watch `_kiro/mcp/status` itself. The action now renders progress
+inside itself by driving that protocol (a minimal ACP client in
+`src/kiro/run.ts`; see `docs/configuration.md`), while keeping
+`update_kiro_comment` available as one channel — but **only behind the opt-in
+`output_format` input**. The default is still `text`, the committed
+`kiro-cli chat --no-interactive` path: these surfaces require `--agent-engine v2`
+or `v3` to be passed explicitly, the numbers above were measured on
+kiro-cli 2.21.1 / KAS 0.58.7 rather than re-run here, and flipping the default is
+gated on the `kiro-perm-probe.yml` rounds passing in CI across both engines. Set
+`output_format: acp` to try it; the committed behaviour is unchanged until that
+measurement lands and the default is deliberately flipped.
 
 Bugs found while building this action and reported upstream:
 [#10876](https://github.com/kirodotdev/Kiro/issues/10876) (v3 ignores MCP servers
