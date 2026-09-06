@@ -97,6 +97,31 @@ export async function prepareMcpServers(
     };
   }
 
+  // Inline review comments are opt-in, and only make sense on a pull request
+  // with a tracking comment to summarise into. The server wraps exactly one API
+  // call (createReviewComment), so the agent never sees the review API that
+  // could approve or request changes. Same token as the comment server: posting
+  // a review comment needs `pull-requests: write`, which the action already
+  // requires.
+  if (
+    mode === "tag" &&
+    isEntityContext(context) &&
+    context.isPR &&
+    context.inputs.useInlineComments
+  ) {
+    servers.github_inline_comment = {
+      command: bunCommand(),
+      args: bunServerArgs("src/mcp/github-inline-comment-server.ts"),
+      env: {
+        GITHUB_TOKEN: githubToken,
+        REPO_OWNER: owner,
+        REPO_NAME: repo,
+        PR_NUMBER: context.entityNumber.toString(),
+        GITHUB_API_URL,
+      },
+    };
+  }
+
   // The CI server needs `actions: read`, which the workflow token carries only
   // when the workflow asks for it. It is only useful on a pull request.
   const workflowToken = process.env.DEFAULT_WORKFLOW_TOKEN;

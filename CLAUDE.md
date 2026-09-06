@@ -41,7 +41,7 @@ This is the part that needs reading several files to understand, and where the n
 - **The CLI is spawned detached, and the run resolves on `exit` rather than `close`.** v3 leaks a KAS server as a grandchild that holds the pipes; without the process group and the explicit pipe teardown the action finishes its work and then hangs. Upstream: kirodotdev/Kiro#10877.
 - **The agent never commits.** `git push`, `git config`, and `git remote` are denied (the push URL carries the token, and `git push --receive-pack=…` is RCE). `src/git/commit.ts` stages only paths whose content changed after `snapshotWorkingTree`, so the action's own `bun install` and the config restore stay out of the commit. The message comes from a file under `$RUNNER_TEMP`, which is why the write policy allows `$RUNNER_TEMP/kiro-*` as well as `./**`.
 
-The action supplies its own MCP servers (`src/mcp/prepare-mcp-config.ts`): `github_comment`, the only channel through which progress is reported, and `github_ci`, added on pull requests when a probe call confirms `actions: read`.
+The action supplies its own MCP servers (`src/mcp/prepare-mcp-config.ts`): `github_comment`, the channel through which progress is reported; `github_ci`, added on pull requests when a probe call confirms `actions: read`; and `github_inline_comment`, added on pull requests only when `use_inline_comments` is set — one tool wrapping `createReviewComment`, never the review API, capped at 20 per run.
 
 Prompt construction lives in `src/create-prompt/index.ts` (`buildSystemPrompt`, `createTagPrompt`); GitHub data is fetched and formatted in `src/github/data/`.
 

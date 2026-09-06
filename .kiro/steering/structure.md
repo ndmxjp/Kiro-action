@@ -43,4 +43,6 @@ This is where the non-obvious constraints live. `docs/security.md` is the author
 - `github_comment` — updates the tracking comment. In tag mode this is the **only** channel through which the agent reports anything, so a failure to start it is fatal (`--require-mcp-startup`, exit code 3).
 - `github_ci` — reads workflow runs and job logs on a pull request. Added only when a probe API call confirms the workflow token carries `actions: read`; otherwise it is skipped with a warning.
 
-Both are launched as `bun` subprocesses with the same flags the entrypoint uses, so they read their runtime config from the action directory rather than from the untrusted working directory.
+- `github_inline_comment` — posts review comments on lines of the PR diff. Only when a workflow opts in with `use_inline_comments`; wraps `pulls.createReviewComment` alone, never the review API, so approving stays impossible; capped at 20 per run (`src/github/operations/comments/inline-comment.ts`).
+
+All three are launched as `bun` subprocesses with the same flags the entrypoint uses, so they read their runtime config from the action directory rather than from the untrusted working directory.

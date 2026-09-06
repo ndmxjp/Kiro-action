@@ -16,6 +16,7 @@ import {
 import type { ParsedGitHubContext } from "../github/context";
 import type { CommonFields, PreparedContext, EventData } from "./types";
 import { GITHUB_SERVER_URL } from "../github/api/config";
+import { MAX_INLINE_COMMENTS_PER_RUN } from "../github/operations/comments/inline-comment";
 export type { CommonFields, PreparedContext } from "./types";
 
 /** The MCP tool Kiro uses to talk to the reader of the issue/PR. */
@@ -382,6 +383,7 @@ export function generateTagPrompt(
   context: PreparedContext,
   githubData: FetchDataResult,
   hasCiTools: boolean,
+  hasInlineComments: boolean,
   commitMessageFile: string,
 ): string {
   const { contextData, comments, changedFilesWithSHA, reviewData } = githubData;
@@ -481,7 +483,17 @@ ${
   hasCiTools
     ? `- CI results for this PR are available: get_ci_status for a summary, get_workflow_run_details for a run's jobs and failing steps, and download_job_log to save a job log so you can read it.`
     : ""
-}
+}${
+    hasInlineComments
+      ? `
+Inline review comments
+- create_inline_comment posts a review comment on a line of this PR's diff: path, line (and startLine for a range), side RIGHT for new code or LEFT for old, body.
+- Only lines the diff adds, removes, or shows as context can carry a comment; anything else is rejected by GitHub. Take line numbers from \`git diff\`, not from the whole file.
+- A \`\`\`suggestion block replaces the entire line range, so keep it to exactly the lines you named.
+- At most ${MAX_INLINE_COMMENTS_PER_RUN} per run. Put the overall verdict, and anything beyond the cap, in the tracking comment — inline comments are for findings tied to a specific line.
+- This does not let you approve, request changes, or submit a review, and it should not.`
+      : ""
+  }
 ${getCommitInstructions(eventData, commitMessageFile)}
 ${
   eventData.kiroBranch
@@ -517,6 +529,7 @@ export function createTagPrompt(
   githubData: FetchDataResult,
   context: ParsedGitHubContext,
   hasCiTools: boolean,
+  hasInlineComments: boolean,
   commitMessageFile: string,
 ): { prompt: string; coAuthorLine?: string } {
   const preparedContext = prepareContext(
@@ -530,6 +543,7 @@ export function createTagPrompt(
     preparedContext,
     githubData,
     hasCiTools,
+    hasInlineComments,
     commitMessageFile,
   );
 

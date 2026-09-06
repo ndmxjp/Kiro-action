@@ -17,14 +17,15 @@ valid only for the duration of the job.
 
 ### What to run
 
-| Input                 | Default | Notes                                                                                                                                                            |
-| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt`              | `""`    | Instructions. Providing this selects agent mode.                                                                                                                 |
-| `custom_instructions` | `""`    | Appended to the tag-mode prompt as `<custom_instructions>`. Use it for standing rules ("always run the linter", "never touch the migrations directory").         |
-| `trigger_phrase`      | `@kiro` | Matched as a standalone token, case-insensitively, in issue and PR bodies and titles, comments, and review bodies. `@kirodotdev` and `me@kiro.dev` do not match. |
-| `assignee_trigger`    | `""`    | Username whose assignment starts a run. A leading `@` is optional.                                                                                               |
-| `label_trigger`       | `kiro`  | Label whose addition starts a run. Compared case-insensitively.                                                                                                  |
-| `track_progress`      | `false` | Forces tag mode even when `prompt` is set: you get the tracking comment and the fixed prompt. Only valid for issue and pull request events.                      |
+| Input                 | Default | Notes                                                                                                                                                                                               |
+| --------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`              | `""`    | Instructions. Providing this selects agent mode.                                                                                                                                                    |
+| `custom_instructions` | `""`    | Appended to the tag-mode prompt as `<custom_instructions>`. Use it for standing rules ("always run the linter", "never touch the migrations directory").                                            |
+| `trigger_phrase`      | `@kiro` | Matched as a standalone token, case-insensitively, in issue and PR bodies and titles, comments, and review bodies. `@kirodotdev` and `me@kiro.dev` do not match.                                    |
+| `assignee_trigger`    | `""`    | Username whose assignment starts a run. A leading `@` is optional.                                                                                                                                  |
+| `label_trigger`       | `kiro`  | Label whose addition starts a run. Compared case-insensitively.                                                                                                                                     |
+| `track_progress`      | `false` | Forces tag mode even when `prompt` is set: you get the tracking comment and the fixed prompt. Only valid for issue and pull request events.                                                         |
+| `use_inline_comments` | `false` | Pull requests only: adds a `create_inline_comment` tool that posts review comments on lines of the diff, at most 20 per run. Off by default; see [Inline review comments](#inline-review-comments). |
 
 ### Branching
 
@@ -108,6 +109,35 @@ replaced with a `camo.githubusercontent.com` proxy URL, the image is wrapped in 
 link to that URL, and any `style` you supply is discarded in favour of GitHub's own
 (`max-height`, `aspect-ratio`, and a placeholder background). So there is no point
 trying to nudge the vertical alignment from here.
+
+## Inline review comments
+
+Off by default. With `use_inline_comments: true`, a tag-mode run on a pull request
+also gets a `github_inline_comment` MCP server with one tool,
+`create_inline_comment`, which posts a review comment on a line or range of the
+diff. The prompt tells Kiro to keep the overall verdict in the tracking comment and
+use inline comments only for findings tied to a specific line.
+
+What it deliberately is not: a review. The server wraps
+`pulls.createReviewComment` and nothing else, so the review API — the one that
+carries approve and request-changes — is never reachable. Kiro still cannot
+approve, request changes, or submit a formal review.
+
+Limits, and why:
+
+- **At most 20 inline comments per run.** The tracking comment is one body Kiro
+  rewrites, so it cannot grow without bound; inline comments can, and a prompt
+  injection that turns the agent into a comment spammer is a plausible attack on a
+  public repository. The cap makes the worst case a nuisance. Upstream has no cap.
+- **Only lines in the diff.** GitHub rejects anchors outside the added, removed,
+  and context lines with a bare `Validation Failed`; the server turns that into a
+  message that says so, and the prompt tells Kiro to take line numbers from
+  `git diff` rather than from the file.
+- Bodies go through the same sanitiser and secret redaction as the tracking
+  comment, since each one is another channel humans read.
+
+It needs no permission beyond the `pull-requests: write` the action already
+requires.
 
 ## Outputs
 

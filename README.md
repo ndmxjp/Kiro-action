@@ -124,9 +124,10 @@ it edited, to a branch it created or to the PR branch.
 
 Cannot: run commands you have not allowed (see
 [docs/security.md](docs/security.md)); commit or push by itself; open, approve, or
-merge a pull request; submit a formal PR review; post more than one comment; or
-touch `.github/workflows`. Only users with write access to the repository can
-trigger a run.
+merge a pull request; submit a formal PR review; post more than one comment unless
+`use_inline_comments` is on, in which case it may also leave up to 20 review
+comments on lines of the diff; or touch `.github/workflows`. Only users with write
+access to the repository can trigger a run.
 
 ## Inputs
 
