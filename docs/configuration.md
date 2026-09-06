@@ -112,11 +112,13 @@ trying to nudge the vertical alignment from here.
 
 ## Inline review comments
 
-Off by default. With `use_inline_comments: true`, a tag-mode run on a pull request
-also gets a `github_inline_comment` MCP server with one tool,
+Off by default. With `use_inline_comments: true`, a run on a pull request — in
+either mode — also gets a `github_inline_comment` MCP server with one tool,
 `create_inline_comment`, which posts a review comment on a line or range of the
-diff. The prompt tells Kiro to keep the overall verdict in the tracking comment and
-use inline comments only for findings tied to a specific line.
+diff. Kiro is told to use inline comments only for findings tied to a specific
+line and to keep the overall verdict elsewhere: in the tracking comment when there
+is one, otherwise in its final answer, which a later workflow step can post (see
+`examples/kiro-review.yml` for the review-every-PR shape).
 
 What it deliberately is not: a review. The server wraps
 `pulls.createReviewComment` and nothing else, so the review API — the one that

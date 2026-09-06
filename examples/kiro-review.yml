@@ -25,8 +25,15 @@ jobs:
         with:
           kiro_api_key: ${{ secrets.KIRO_API_KEY }}
           track_progress: true
+          # Findings tied to a line go on that line; the verdict stays in the
+          # tracking comment. Capped at 20 inline comments per run.
+          use_inline_comments: true
           prompt: |
             Review this pull request. Do not modify any files.
+
+            Put each finding that is tied to a specific line on that line with
+            create_inline_comment, and keep the overall verdict in the tracking
+            comment.
 
             Focus on, in order:
             1. Correctness — logic errors, unhandled failures, off-by-one bounds.

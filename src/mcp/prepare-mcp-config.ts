@@ -97,14 +97,14 @@ export async function prepareMcpServers(
     };
   }
 
-  // Inline review comments are opt-in, and only make sense on a pull request
-  // with a tracking comment to summarise into. The server wraps exactly one API
-  // call (createReviewComment), so the agent never sees the review API that
-  // could approve or request changes. Same token as the comment server: posting
-  // a review comment needs `pull-requests: write`, which the action already
-  // requires.
+  // Inline review comments are opt-in and only make sense on a pull request,
+  // in either mode: a tag-mode review summarises into the tracking comment, an
+  // agent-mode review (examples/kiro-review.yml) into its final answer. The
+  // server wraps exactly one API call (createReviewComment), so the agent never
+  // sees the review API that could approve or request changes. Same token as the
+  // comment server: posting a review comment needs `pull-requests: write`, which
+  // the action already requires.
   if (
-    mode === "tag" &&
     isEntityContext(context) &&
     context.isPR &&
     context.inputs.useInlineComments
