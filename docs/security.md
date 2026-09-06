@@ -138,12 +138,17 @@ Two v3 quirks are worth knowing, both measured:
   this action writes them on v3 — which also merges the checkout's copy, hence the
   config restore above. Reported upstream as
   [kirodotdev/Kiro#10876](https://github.com/kirodotdev/Kiro/issues/10876).
-- The CLI exits after answering but the KAS server it starts as a grandchild keeps
-  running and holds the output pipes, which would keep this action's own process
-  from exiting — one leaked server per run, measured at eleven in a single job. The
-  CLI is therefore started in its own process group, and the group is signalled and
-  the pipes released once the run is over. Reported upstream as
-  [kirodotdev/Kiro#10877](https://github.com/kirodotdev/Kiro/issues/10877).
+- On kiro-cli 2.18.1 the CLI exited after answering but the KAS server it started
+  as a grandchild kept running and held the output pipes, which kept this action's
+  own process from exiting — one leaked server per run, measured at eleven in a
+  single job. Reported as
+  [kirodotdev/Kiro#10877](https://github.com/kirodotdev/Kiro/issues/10877) and
+  fixed in 2.21.1 (kiro-team/kiro-cli#4293): measured here, `--no-interactive
+--v3` now exits in about ten seconds with nothing left behind. The CLI is still
+  started in its own process group, and the group is signalled and the pipes
+  released once the run is over — cheap, harmless on a fixed CLI, and the only
+  defence if the leak returns or an older CLI is pinned with
+  `path_to_kiro_cli_executable`.
 
 v3 is not the default because 3.0 is documented as early access, `includeMcpJson`
 widens what gets loaded, and its registry is fragile in ways others have hit —

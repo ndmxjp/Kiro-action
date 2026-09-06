@@ -147,7 +147,9 @@ export async function run() {
       trustAllTools: context.inputs.trustAllTools,
       extraArgs: parseKiroArgs(process.env.KIRO_ARGS),
       timeoutMinutes: parseTimeout(process.env.TIMEOUT_MINUTES),
-      // Only v3 needs this: it finishes its answer and then never exits.
+      // Guard from the 2.18.1 days, when v3 answered and then never exited
+      // (kirodotdev/Kiro#10877, fixed in 2.21.1). Kept on v3 only, where it
+      // was needed; on a fixed CLI the process exits long before it fires.
       idleTimeoutSeconds: context.inputs.agentEngine === "v3" ? 90 : undefined,
     });
 

@@ -10,8 +10,9 @@
 import { run } from "./run";
 
 run().then(() => {
-  // Exit explicitly rather than waiting for the event loop to drain: the CLI's
-  // KAS server can outlive it and keep a handle open, and core.setFailed has
-  // already set the exit code by this point.
+  // Exit explicitly rather than waiting for the event loop to drain: on
+  // kiro-cli 2.18.1 the v3 KAS server outlived the CLI and kept a handle open
+  // (fixed in 2.21.1, but a stray handle from anywhere would hang the job), and
+  // core.setFailed has already set the exit code by this point.
   process.exit(process.exitCode ?? 0);
 });
