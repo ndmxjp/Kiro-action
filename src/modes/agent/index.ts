@@ -72,7 +72,9 @@ export async function prepareAgentMode({
     extraTools: context.inputs.allowedTools,
     extraShellCommands: context.inputs.allowedShellCommands,
     model: context.inputs.model,
-    systemPrompt: buildSystemPrompt("agent", shellCommands),
+    systemPrompt: buildSystemPrompt("agent", shellCommands, {
+      inlineComments: Boolean(mcpServers.github_inline_comment),
+    }),
   });
   const agentPath = await writeAgentConfig(agentConfig);
 
