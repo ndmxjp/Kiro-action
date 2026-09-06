@@ -6,15 +6,17 @@ import { runKiro } from "../src/kiro/run";
 
 /**
  * Exercises the process lifecycle with a stand-in for the CLI, because the two
- * bugs these cover only appear with a real child process:
+ * bugs these cover only appear with a real child process. Both were measured on
+ * kiro-cli 2.18.1's v3 engine and fixed in 2.21.1 (kirodotdev/Kiro#10877); the
+ * tests stay because the handling stays, as a guard:
  *
- *  - the v3 engine finishes its answer and then never exits, so the action has
- *    to decide the run is over on its own;
- *  - it starts a KAS server as a grandchild, so signalling only the CLI leaves
- *    the pipes open and the action waits forever.
+ *  - the CLI finished its answer and then never exited, so the action had to
+ *    decide the run was over on its own;
+ *  - it started a KAS server as a grandchild, so signalling only the CLI left
+ *    the pipes open and the action waited forever.
  *
  * The fake writes some output, then leaves a background child holding stdout
- * while the "CLI" itself keeps running — the same shape as the real thing.
+ * while the "CLI" itself keeps running — the same shape the real thing had.
  */
 function fakeCli(script: string): string {
   const dir = mkdtempSync(join(tmpdir(), "kiro-run-test-"));

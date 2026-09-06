@@ -143,9 +143,9 @@ Two v3 quirks are worth knowing, both measured:
   own process from exiting — one leaked server per run, measured at eleven in a
   single job. Reported as
   [kirodotdev/Kiro#10877](https://github.com/kirodotdev/Kiro/issues/10877) and
-  fixed in 2.21.1 (kiro-team/kiro-cli#4293): measured here, `--no-interactive
---v3` now exits in about ten seconds with nothing left behind. The CLI is still
-  started in its own process group, and the group is signalled and the pipes
+  fixed in 2.21.1 (kiro-team/kiro-cli#4293): measured here,
+  `--no-interactive --v3` now exits in about ten seconds with nothing left
+  behind. The CLI is still started in its own process group, and the group is signalled and the pipes
   released once the run is over — cheap, harmless on a fixed CLI, and the only
   defence if the leak returns or an older CLI is pinned with
   `path_to_kiro_cli_executable`.
@@ -226,8 +226,9 @@ These are real limitations, not oversights:
    with `use_inline_comments` the agent can post up to 20 review comments per run,
    each sanitised and redacted like the tracking comment. The cap exists because,
    unlike the single tracking comment, this channel could otherwise be used to
-   flood a pull request. It never exposes the review API, so approving or
-   requesting changes stays impossible.
+   flood a pull request. GitHub records each one under a review with state
+   `COMMENTED` — a container that carries no verdict. The review API itself is
+   never exposed, so `APPROVE` and `REQUEST_CHANGES` stay impossible.
 6. **No sandbox for non-write users.** The upstream action can run untrusted
    content in an isolated subprocess; this port simply refuses to run for actors
    without write access.
