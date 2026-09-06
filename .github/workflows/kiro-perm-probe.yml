@@ -14,6 +14,35 @@
 # (allowedCommands / deniedCommands) for per-command scoping. The question that
 # decides this action's security model is whether shell can be limited to git
 # while file writes still work.
+#
+# Round 3 (Cases CC..FF, added for kiro-cli 2.21.1 / KAS 0.58.7) measures the
+# machine-readable surfaces the CLI now ships and the engine-naming change:
+#   - Case CC: `--output-format stream-json` on --agent-engine v2 and v3, with
+#     the action's own scoped-profile shape (execute_bash/fs_write untrusted).
+#     Establishes the JSONL event vocabulary (runStarted -> metadata ->
+#     sessionUpdate -> runFinished), and that a denial produces a
+#     `tool_call_update` with status "failed" carrying `rawInput.command`.
+#   - Case DD: engine naming. Records which engine a BARE run uses versus
+#     --agent-engine v1|v2|v3. Round reported: bare == v1; v2 is a genuinely
+#     different engine that honours toolsSettings but cancels the allowed
+#     siblings of a denied call in a parallel batch; v3 ignores toolsSettings and
+#     falls through to a headless denial (git status still runs via v3's
+#     built-in read-only defaults).
+#   - Case EE: ACP. A minimal JSON-RPC-over-stdio client speaks `kiro-cli acp`,
+#     sends initialize -> session/new (a stdio MCP echo server passed directly in
+#     mcpServers) -> waits for `_kiro/mcp/status` = connected -> session/prompt.
+#     Establishes that initialize answers on v2/v3, that v3 first emits a client
+#     request `_kiro/auth/getAccessToken` unless `--auth-method cli` is passed,
+#     that a stdio server passed in session/new is accepted (origin "client"),
+#     that `_kiro/mcp/status` is the only surface reporting MCP connection state,
+#     and that `--require-mcp-startup` is NOT enforced on v3 (a nonexistent
+#     server binary still exits 0), which is why an ACP client must wait on
+#     `_kiro/mcp/status` itself.
+#   - Case FF: provoke a tool denial under an mcp-allow profile to see whether
+#     `session/request_permission` ever arrives (the round found it did not; the
+#     "decide permissions in action code" idea stays unverified until it does).
+# These rounds are diagnostic only. They are run by hand; nothing here is part of
+# the action, and the numbers they produce are what docs/security.md records.
 name: Kiro permission probe
 
 on:
@@ -564,3 +593,298 @@ jobs:
             c.on("exit", (code) => console.log(`  exit event after ${((Date.now()-t0)/1000).toFixed(1)}s, code=${code}`));
             c.on("close", () => console.log(`  close event after ${((Date.now()-t0)/1000).toFixed(1)}s`));
           ' || echo "  (the node parent was still waiting after 30s — close never fired)"
+
+      # ----------------------------------------------------------------------
+      # Round 3 (kiro-cli 2.21.1 / KAS 0.58.7): machine-readable output and the
+      # engine-naming change. These write the ACTION'S OWN scoped-profile shape
+      # — execute_bash and fs_write present in `tools` but NOT in `allowedTools`,
+      # scoped by toolsSettings on v2 and permissions.rules on v3 — and ask for
+      # one allowed op (git status), one denied op (curl), and one out-of-scope
+      # write (/tmp), so the same three rows can be read across every engine.
+      # ----------------------------------------------------------------------
+
+      - name: "Write the Round 3 scoped profiles (v2 toolsSettings, v3 permissions.rules)"
+        run: |
+          mkdir -p ~/.kiro/agents
+
+          # v2 shape: nothing trusted wholesale; execute_bash/fs_write scoped.
+          cat > ~/.kiro/agents/probe-stream-v2.json <<'JSON'
+          {
+            "name": "probe-stream-v2",
+            "description": "Round 3 v2: action-shaped scoped profile",
+            "prompt": "You are running in CI. Attempt each thing you are asked, in order, and report each outcome verbatim including any refusal.",
+            "mcpServers": {},
+            "tools": ["fs_read", "grep", "glob", "fs_write", "execute_bash"],
+            "allowedTools": ["fs_read", "grep", "glob"],
+            "toolsSettings": {
+              "execute_bash": {
+                "allowedCommands": ["git status.*", "git diff.*", "git log.*"],
+                "deniedCommands": ["curl .*", "wget .*", "sudo .*", "rm -rf .*"]
+              },
+              "fs_write": { "allowedPaths": ["./**"] }
+            }
+          }
+          JSON
+
+          # v3 shape: the same intent expressed as permissions.rules.
+          cat > ~/.kiro/agents/probe-stream-v3.json <<'JSON'
+          {
+            "name": "probe-stream-v3",
+            "description": "Round 3 v3: action-shaped scoped profile",
+            "prompt": "You are running in CI. Attempt each thing you are asked, in order, and report each outcome verbatim including any refusal.",
+            "mcpServers": {},
+            "tools": ["fs_read", "grep", "glob", "fs_write", "execute_bash"],
+            "permissions": {
+              "rules": [
+                { "capability": "fs_read", "effect": "allow" },
+                { "capability": "fs_write", "match": ["./**"], "effect": "allow" },
+                { "capability": "shell", "match": ["git status*", "git diff*", "git log*"], "effect": "allow" },
+                { "capability": "shell", "match": ["curl *", "wget *", "sudo *", "rm -rf *"], "effect": "deny" }
+              ]
+            },
+            "includeMcpJson": false
+          }
+          JSON
+          kiro-cli agent validate ~/.kiro/agents/probe-stream-v2.json || true
+          kiro-cli agent validate ~/.kiro/agents/probe-stream-v3.json || true
+
+      - name: "Case CC — --output-format stream-json on v2 and v3 (allowed/denied/out-of-scope)"
+        run: |
+          THREE='Attempt all three in order and report each outcome, quoting any refusal verbatim: 1. Run the shell command: git status --short  2. Run the shell command: curl -s https://example.com  3. Create a file named /tmp/probe-cc.txt containing ok'
+
+          for eng in v2 v3; do
+            echo "======================================================================"
+            echo "=== stream-json on --agent-engine $eng — raw stdout (JSON Lines) ==="
+            echo "======================================================================"
+            rm -f /tmp/probe-cc.txt
+            kiro-cli chat --no-interactive \
+              --agent-engine "$eng" \
+              --output-format stream-json \
+              --agent "probe-stream-$eng" \
+              "$THREE" > "/tmp/cc-$eng.jsonl" 2>"/tmp/cc-$eng.err" || echo "EXIT=$?"
+            echo "--- /tmp/cc-$eng.jsonl (verbatim, expect pure JSONL, zero ANSI):"
+            cat "/tmp/cc-$eng.jsonl"
+            echo "--- stderr tail:"; tail -5 "/tmp/cc-$eng.err" || true
+            echo "--- event types seen (jq over each line):"
+            while IFS= read -r line; do
+              printf '%s\n' "$line" | jq -r '.type // .method // "?"' 2>/dev/null || echo "(non-JSON line)"
+            done < "/tmp/cc-$eng.jsonl" | sort | uniq -c || true
+            echo "--- any tool_call_update with status failed and its rawInput.command:"
+            grep -o '"status":"failed"[^}]*' "/tmp/cc-$eng.jsonl" || echo "  (none matched textually)"
+            grep -o '"command":"[^"]*"' "/tmp/cc-$eng.jsonl" || echo "  (no rawInput.command captured)"
+            echo "--- /tmp write landed: $([ -f /tmp/probe-cc.txt ] && echo yes || echo no)"
+          done
+
+      - name: "Case DD — engine naming: bare vs --agent-engine v1|v2|v3, same profile"
+        run: |
+          # One denied call sits inside a parallel batch so we can see whether an
+          # engine cancels the *allowed* siblings when one call is denied.
+          BATCH='In a single turn, attempt all three and report each outcome verbatim, quoting any refusal: (a) git status --short  (b) curl -s https://example.com  (c) create /tmp/probe-dd.txt containing ok'
+
+          run_case () {
+            local label="$1"; shift
+            echo "======================================================================"
+            echo "=== $label ==="
+            echo "======================================================================"
+            rm -f /tmp/probe-dd.txt
+            kiro-cli chat --no-interactive "$@" --agent probe-stream-v2 "$BATCH" 2>&1 \
+              | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tail -40 || echo "EXIT=$?"
+            echo "--- /tmp write landed: $([ -f /tmp/probe-dd.txt ] && echo yes || echo no)"
+          }
+
+          # bare == which engine? The v2 profile is used throughout so the only
+          # variable is the engine flag; v3 will simply ignore toolsSettings.
+          run_case "BARE run (no --agent-engine)" 
+          run_case "--agent-engine v1" --agent-engine v1
+          run_case "--agent-engine v2 (watch for allowed siblings 'cancelled by user')" --agent-engine v2
+          echo "--- v3 uses permissions.rules, so re-run it with the v3 profile:"
+          rm -f /tmp/probe-dd.txt
+          kiro-cli chat --no-interactive --agent-engine v3 --agent probe-stream-v3 "$BATCH" 2>&1 \
+            | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tail -40 || echo "EXIT=$?"
+          echo "--- (v3) /tmp write landed: $([ -f /tmp/probe-dd.txt ] && echo yes || echo no)"
+
+      - name: "Case EE — ACP: initialize -> session/new -> wait _kiro/mcp/status -> session/prompt"
+        run: |
+          # Reuse the throwaway echo server from the /tmp/mcp2 pattern above; make
+          # sure it exists in case this step runs before the MCP preflight.
+          mkdir -p /tmp/mcp2
+          if [ ! -f /tmp/mcp2/server.mjs ]; then
+            cat > /tmp/mcp2/server.mjs <<'MJS'
+          import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+          import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+          import { z } from "zod";
+          const server = new McpServer({ name: "probe-mcp", version: "0.0.1" });
+          server.tool("echo_probe", "Echo a string back", { text: z.string() }, async ({ text }) => ({
+            content: [{ type: "text", text: `echo:${text}` }],
+          }));
+          await server.connect(new StdioServerTransport());
+          MJS
+            ( cd /tmp/mcp2 && npm install --no-audit --no-fund @modelcontextprotocol/sdk zod >/dev/null 2>&1 )
+          fi
+
+          cat > ~/.kiro/agents/probe-acp.json <<'JSON'
+          {
+            "name": "probe-acp",
+            "description": "ACP probe agent",
+            "prompt": "You are running in CI. Do exactly what you are asked and report the result verbatim.",
+            "tools": ["fs_read", "@probe"],
+            "permissions": {
+              "rules": [
+                { "capability": "fs_read", "effect": "allow" },
+                { "capability": "mcp", "match": ["probe/*"], "effect": "allow" }
+              ]
+            },
+            "includeMcpJson": false
+          }
+          JSON
+
+          # Minimal JSON-RPC-over-stdio ACP client (~60 lines). It spawns
+          # `kiro-cli acp`, drives the handshake, passes the stdio echo server
+          # directly in session/new.mcpServers (NOT via ~/.kiro/settings/mcp.json),
+          # waits for _kiro/mcp/status to report the server connected, then prompts.
+          # Any _kiro/auth/getAccessToken request is logged (it should be absent
+          # because we pass --auth-method cli); if it ever arrives we deny it.
+          cat > /tmp/acp-client.mjs <<'MJS'
+          import { spawn } from "node:child_process";
+          const engine = process.argv[2] || "v3";
+          const child = spawn("kiro-cli",
+            ["acp", "--agent-engine", engine, "--auth-method", "cli", "--agent", "probe-acp"],
+            { stdio: ["pipe", "pipe", "inherit"] });
+          let buf = "", nextId = 1, mcpConnected = false, done = false;
+          const pending = new Map();
+          const send = (obj) => { child.stdin.write(JSON.stringify(obj) + "\n"); };
+          const req = (method, params) => { const id = nextId++; send({ jsonrpc: "2.0", id, method, params }); return id; };
+          const log = (...a) => console.log("[client]", ...a);
+          child.stdout.on("data", (d) => {
+            buf += d.toString();
+            let i;
+            while ((i = buf.indexOf("\n")) >= 0) {
+              const line = buf.slice(0, i); buf = buf.slice(i + 1);
+              if (!line.trim()) continue;
+              let msg; try { msg = JSON.parse(line); } catch { log("non-JSON:", line); continue; }
+              if (msg.method) {
+                log("<-- server request/notif:", msg.method, JSON.stringify(msg.params || {}).slice(0, 300));
+                if (msg.method === "_kiro/auth/getAccessToken") { log("!! auth request arrived despite --auth-method cli"); send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "no host auth" } }); }
+                else if (msg.method === "session/request_permission") { log("!! session/request_permission arrived — answering DENY"); send({ jsonrpc: "2.0", id: msg.id, result: { outcome: { outcome: "cancelled" } } }); }
+                else if (msg.method === "_kiro/mcp/status") {
+                  const servers = msg.params?.servers || msg.params || {};
+                  log("mcp status:", JSON.stringify(servers));
+                  if (JSON.stringify(servers).includes("connected")) mcpConnected = true;
+                } else if (msg.id !== undefined) { send({ jsonrpc: "2.0", id: msg.id, result: {} }); }
+              } else if (msg.id !== undefined) {
+                log("<-- response to id", msg.id, JSON.stringify(msg.result || msg.error || {}).slice(0, 400));
+                pending.set(msg.id, msg);
+              }
+            }
+          });
+          const waitFor = (pred, ms) => new Promise((res) => { const t0 = Date.now(); const iv = setInterval(() => { if (pred() || Date.now() - t0 > ms) { clearInterval(iv); res(pred()); } }, 100); });
+          const waitResp = (id, ms) => waitFor(() => pending.has(id), ms).then(() => pending.get(id));
+          (async () => {
+            const initId = req("initialize", { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "probe", version: "0" } });
+            const init = await waitResp(initId, 15000);
+            log("initialize on", engine, ":", init ? "answered" : "NO ANSWER");
+            log("advertised mcpCapabilities:", JSON.stringify(init?.result?.agentCapabilities?.mcpCapabilities || init?.result?.mcpCapabilities || {}));
+            const newId = req("session/new", { cwd: process.cwd(), mcpServers: { probe: { command: "node", args: ["/tmp/mcp2/server.mjs"] } } });
+            const ses = await waitResp(newId, 15000);
+            const sessionId = ses?.result?.sessionId;
+            log("session/new sessionId:", sessionId);
+            const connected = await waitFor(() => mcpConnected, 20000);
+            log("_kiro/mcp/status reported connected within timeout:", connected);
+            if (sessionId) {
+              const pid = req("session/prompt", { sessionId, prompt: [{ type: "text", text: "Call echo_probe with text=hello and report exactly what it returned." }] });
+              const pr = await waitResp(pid, 30000);
+              log("session/prompt result:", pr ? "answered" : "NO ANSWER");
+            }
+            done = true;
+            child.kill("SIGTERM");
+          })().catch((e) => { log("error:", e.message); child.kill("SIGKILL"); });
+          child.on("exit", (code) => { log("kiro-cli acp exited code", code, "(done=" + done + ")"); process.exit(0); });
+          MJS
+
+          echo "=== ACP on v3 (expect: initialize answered, no getAccessToken with --auth-method cli, echo server connected via session/new) ==="
+          timeout 90 node /tmp/acp-client.mjs v3 || echo "EXIT=$?"
+          echo
+          echo "=== ACP on v2 (initialize should answer; the prompt turn may stall — out of scope) ==="
+          timeout 60 node /tmp/acp-client.mjs v2 || echo "EXIT=$?"
+
+      - name: "Case EE-2 — is --require-mcp-startup enforced on v3? (nonexistent server binary)"
+        run: |
+          cat > ~/.kiro/agents/probe-badmcp.json <<'JSON'
+          {
+            "name": "probe-badmcp",
+            "description": "V3: MCP server whose binary does not exist",
+            "prompt": "You are running in CI. Answer briefly.",
+            "mcpServers": { "ghost": { "command": "/does/not/exist/mcp-server", "args": [] } },
+            "tools": ["fs_read", "@ghost"],
+            "permissions": {
+              "rules": [
+                { "capability": "fs_read", "effect": "allow" },
+                { "capability": "mcp", "match": ["ghost/*"], "effect": "allow" }
+              ]
+            },
+            "includeMcpJson": false
+          }
+          JSON
+          echo "--- bare engine (expect exit 3, MCP startup failure surfaced):"
+          kiro-cli chat --no-interactive --require-mcp-startup --agent probe-badmcp "Reply with the single word: done" >/tmp/badmcp-bare.txt 2>&1
+          echo "BARE_EXIT=$?"
+          echo "--- --agent-engine v3 (issue found exit 0 — startup NOT enforced):"
+          kiro-cli chat --no-interactive --agent-engine v3 --require-mcp-startup --agent probe-badmcp "Reply with the single word: done" >/tmp/badmcp-v3.txt 2>&1
+          echo "V3_EXIT=$?"
+          echo "--- bare output tail:"; tail -3 /tmp/badmcp-bare.txt || true
+          echo "--- v3 output tail:";   tail -3 /tmp/badmcp-v3.txt || true
+
+      - name: "Case FF — does session/request_permission ever arrive under an mcp-allow profile?"
+        run: |
+          # Same ACP client, but the prompt asks for something the profile does
+          # NOT allow (an out-of-scope shell command), to try to provoke a
+          # permission request rather than a headless denial. The issue found the
+          # request never arrived; the client logs it (and answers DENY) if it does.
+          mkdir -p /tmp/mcp2
+          cat > ~/.kiro/agents/probe-acp.json <<'JSON'
+          {
+            "name": "probe-acp",
+            "description": "ACP probe agent (fs_read + mcp allow only)",
+            "prompt": "You are running in CI. Do exactly what you are asked and report the result verbatim.",
+            "tools": ["fs_read", "execute_bash", "@probe"],
+            "permissions": {
+              "rules": [
+                { "capability": "fs_read", "effect": "allow" },
+                { "capability": "mcp", "match": ["probe/*"], "effect": "allow" }
+              ]
+            },
+            "includeMcpJson": false
+          }
+          JSON
+          cat > /tmp/acp-deny-client.mjs <<'MJS'
+          import { spawn } from "node:child_process";
+          const child = spawn("kiro-cli", ["acp", "--agent-engine", "v3", "--auth-method", "cli", "--agent", "probe-acp"], { stdio: ["pipe", "pipe", "inherit"] });
+          let buf = "", nextId = 1; const pending = new Map();
+          const send = (o) => child.stdin.write(JSON.stringify(o) + "\n");
+          const req = (method, params) => { const id = nextId++; send({ jsonrpc: "2.0", id, method, params }); return id; };
+          const log = (...a) => console.log("[deny-client]", ...a);
+          let sawPermission = false;
+          child.stdout.on("data", (d) => {
+            buf += d.toString(); let i;
+            while ((i = buf.indexOf("\n")) >= 0) {
+              const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line.trim()) continue;
+              let m; try { m = JSON.parse(line); } catch { continue; }
+              if (m.method === "session/request_permission") { sawPermission = true; log("!! session/request_permission ARRIVED:", JSON.stringify(m.params).slice(0, 400)); send({ jsonrpc: "2.0", id: m.id, result: { outcome: { outcome: "cancelled" } } }); }
+              else if (m.method === "_kiro/auth/getAccessToken") { send({ jsonrpc: "2.0", id: m.id, error: { code: -32601, message: "no host auth" } }); }
+              else if (m.method && m.id !== undefined) { send({ jsonrpc: "2.0", id: m.id, result: {} }); }
+              else if (m.id !== undefined) pending.set(m.id, m);
+            }
+          });
+          const waitFor = (p, ms) => new Promise((r) => { const t0 = Date.now(); const iv = setInterval(() => { if (p() || Date.now() - t0 > ms) { clearInterval(iv); r(p()); } }, 100); });
+          const waitResp = (id, ms) => waitFor(() => pending.has(id), ms).then(() => pending.get(id));
+          (async () => {
+            await waitResp(req("initialize", { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: "probe", version: "0" } }), 15000);
+            const ses = await waitResp(req("session/new", { cwd: process.cwd(), mcpServers: {} }), 15000);
+            const sid = ses?.result?.sessionId;
+            if (sid) await waitResp(req("session/prompt", { sessionId: sid, prompt: [{ type: "text", text: "Run the shell command: curl -s https://example.com and report the outcome." }] }), 30000);
+            log("session/request_permission arrived at any point:", sawPermission);
+            child.kill("SIGTERM");
+          })().catch((e) => { log("error:", e.message); child.kill("SIGKILL"); });
+          child.on("exit", (code) => { log("acp exited code", code); process.exit(0); });
+          MJS
+          timeout 90 node /tmp/acp-deny-client.mjs || echo "EXIT=$?"

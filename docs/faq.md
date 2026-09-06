@@ -66,22 +66,32 @@ Same shape, different CLI. Differences that follow from the Kiro CLI's surface:
 | Credential                | Anthropic key, Bedrock, Vertex           | `KIRO_API_KEY` only                         |
 | MCP wiring                | `--mcp-config` flag                      | generated agent config at `~/.kiro/agents/` |
 | Tool gating               | `--allowedTools` + `acceptEdits`         | agent `allowedTools` + `permissions.rules`  |
-| Progress                  | streaming JSON, parsed into the comment  | the `update_kiro_comment` MCP tool          |
+| Progress                  | streaming JSON, parsed into the comment  | today `update_kiro_comment`; moving to parsing the CLI stream |
 | Outputs                   | `structured_output`, turn-by-turn report | captured stdout in `execution_file`         |
 | Commit signing            | optional, via the GitHub API             | not supported                               |
 | Inline PR review comments | supported                                | not supported                               |
 
 The execution file is the raw CLI output with secrets redacted, and progress
-depends on the model calling `update_kiro_comment`. This was forced when the CLI
-had no machine-readable output
+today depends on the model calling `update_kiro_comment`. This was forced when the
+CLI had no machine-readable output
 ([kirodotdev/Kiro#5423](https://github.com/kirodotdev/Kiro/issues/5423)); it no
-longer is. kiro-cli 2.21.1 ships `--output-format stream-json` — the run's ACP
-events as JSON Lines on stdout, measured here as clean JSONL with no ANSI, tool
-calls carrying the exact command and its result, and a `runFinished` event with
-the final answer (the upstream issue is still open, but the flag exists). This
-action does not use it yet: it requires `--agent-engine v2` or `v3` to be passed
-explicitly, and adopting it means redesigning how progress reaches the tracking
-comment.
+longer is. kiro-cli 2.21.1 ships two machine-readable surfaces:
+`--output-format stream-json` — the run's ACP events as JSON Lines on stdout,
+measured as clean JSONL with no ANSI, tool calls carrying the exact command and
+its result, and a `runFinished` event with the final answer — and an `acp` mode
+that speaks the full protocol over stdio. ACP is the superset: stream-json is its
+read-only projection (both carry `payloadSchema: "acp"`), and ACP is the only
+surface that reports MCP connection state (`_kiro/mcp/status`), which stream-json
+omits. That connection state is why ACP is the real target — v3 does not enforce
+`--require-mcp-startup`, so a client that needs to know the comment server
+connected has to watch `_kiro/mcp/status` itself. The plan is to render progress
+inside the action by parsing that stream (see `docs/security.md`), while keeping
+`update_kiro_comment` available as one channel. This action does not do that yet:
+these surfaces require `--agent-engine v2` or `v3` to be passed explicitly, the
+numbers above were measured on kiro-cli 2.21.1 / KAS 0.58.7 rather than re-run
+here, and adoption is gated on the `kiro-perm-probe.yml` rounds passing in CI
+across both engines. The committed behaviour is unchanged until that measurement
+lands and the default is deliberately flipped.
 
 Bugs found while building this action and reported upstream:
 [#10876](https://github.com/kirodotdev/Kiro/issues/10876) (v3 ignores MCP servers
