@@ -62,15 +62,27 @@ function scriptedAcp({
   status,
   chunk,
   exitAfter = true,
+  finalText,
 }: {
   status: "connected" | "connecting-only";
   chunk: string;
   exitAfter?: boolean;
+  /**
+   * When set, the fake emits a top-level `runFinished` event carrying this
+   * `finalText` after the chunks. The client should treat it as the
+   * authoritative final answer, superseding the chunk concatenation.
+   */
+  finalText?: string;
 }): string {
   const emitConnected =
     status === "connected"
       ? `printf '%s\\n' '{"jsonrpc":"2.0","method":"_kiro/mcp/status","params":{"serverName":"github_comment","status":"connected","toolCount":1}}'`
       : `: # never reaches connected`;
+
+  const emitRunFinished =
+    finalText !== undefined
+      ? `printf '%s\\n' '{"type":"runFinished","data":{"sessionId":"sess-1","status":"success","stopReason":"end_turn","finalText":"${finalText}","finalTextTruncated":false}}'`
+      : `: # no runFinished event`;
 
   const tail = exitAfter ? "exit 0" : "sleep 600";
 
@@ -90,6 +102,7 @@ while IFS= read -r line; do
       printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"${chunk}"}}}}'
       printf '%s\\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"shell","rawInput":{"command":"git status"}}}}'
       printf '%s\\n' '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
+      ${emitRunFinished}
       ${tail}
       ;;
   esac
@@ -119,6 +132,36 @@ describe("runKiro ACP path", () => {
     expect(output).toContain("git status");
     // The raw JSONL capture is persisted too.
     expect(output).toContain('"sessionUpdate":"agent_message_chunk"');
+  });
+
+  test("takes the final answer from runFinished.finalText when present", async () => {
+    const { promptFile, outputFile } = paths();
+
+    const result = await runKiro({
+      ...base,
+      kiroCommand: fakeAcpCli(
+        scriptedAcp({
+          status: "connected",
+          // The streamed chunk is a partial/interim answer; runFinished carries
+          // the authoritative one and must win.
+          chunk: "partial streamed chunk",
+          finalText: "the authoritative final answer",
+        }),
+      ),
+      promptFile,
+      outputFile,
+      mcpServers: commentServer,
+      idleTimeoutSeconds: 5,
+    });
+
+    expect(result.reason).toBe("success");
+    const output = readFileSync(outputFile, "utf8");
+    // The rendered "Final answer" section comes from runFinished.finalText.
+    expect(output).toContain(
+      "=== Final answer ===\nthe authoritative final answer",
+    );
+    // The interim chunk is still rendered inline, but is not the final answer.
+    expect(output).toContain("partial streamed chunk");
   });
 
   test("fails loudly and maps to mcp_startup_failure when a server never connects", async () => {

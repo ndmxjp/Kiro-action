@@ -113,10 +113,12 @@ export type ActionInputs = {
   agentEngine: "v2" | "v3";
   /**
    * How the action drives the CLI. "text" (the default) keeps the committed
-   * `chat --no-interactive` invocation. "stream-json" and "acp" both select the
-   * in-action progress renderer built on a minimal ACP client (see
-   * src/kiro/run.ts). Experimental and opt-in; the deny/scope invariants are
-   * unchanged whichever value is set. See docs/configuration.md.
+   * `chat --no-interactive` invocation. "acp" selects the in-action progress
+   * renderer built on a minimal ACP client (see src/kiro/run.ts); "stream-json"
+   * is accepted as an alias for "acp" and selects that same ACP client path
+   * (there is no separate stream-json reader). Experimental and opt-in; the
+   * deny/scope invariants are unchanged whichever value is set. See
+   * docs/configuration.md.
    */
   outputFormat: "text" | "acp";
 };

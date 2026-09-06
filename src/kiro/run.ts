@@ -364,9 +364,20 @@ async function runKiroAcp(params: RunKiroParams): Promise<KiroRunResult> {
     }
     const chunkText = messageChunkText(update);
     if (chunkText !== undefined) {
-      // The running answer is the concatenation of the agent message chunks;
-      // runFinished.finalText (below) supersedes it when present.
+      // The running answer is the concatenation of the agent message chunks. The
+      // runFinished event's finalText supersedes it when present (below).
       finalText = (finalText ?? "") + chunkText;
+    }
+  });
+
+  // A top-level runFinished event (not JSON-RPC) carries the CLI's authoritative
+  // final answer in data.finalText. When present, it supersedes the
+  // chunk-concatenated finalText; when absent, the concatenation stands. Kept
+  // defensive because the exact shape is measured in CI, not here.
+  client.onEvent("runFinished", (data) => {
+    const record = data as { finalText?: unknown } | undefined;
+    if (record && typeof record.finalText === "string") {
+      finalText = record.finalText;
     }
   });
 
@@ -668,6 +679,14 @@ type JsonRpcMessage = {
   params?: unknown;
   result?: unknown;
   error?: { code?: number; message?: string };
+  /**
+   * Some CLI events are not JSON-RPC at all: they are top-level `type`-tagged
+   * objects (e.g. `{"type":"runFinished","data":{…}}`) emitted on stdout
+   * alongside the protocol. Dispatched through onEvent rather than the
+   * request/response/notification branches.
+   */
+  type?: string;
+  data?: unknown;
 };
 
 type SessionUpdate = {
@@ -694,6 +713,10 @@ class AcpClient {
     string,
     (params: unknown) => void
   >();
+  private readonly eventHandlers = new Map<
+    string,
+    (data: unknown) => void
+  >();
 
   constructor(private readonly child: ChildProcess) {}
 
@@ -703,6 +726,14 @@ class AcpClient {
 
   onNotification(method: string, handler: (params: unknown) => void): void {
     this.notificationHandlers.set(method, handler);
+  }
+
+  /**
+   * Registers a handler for a top-level `type`-tagged event (not JSON-RPC), such
+   * as `runFinished`. The handler receives the event's `data` payload.
+   */
+  onEvent(type: string, handler: (data: unknown) => void): void {
+    this.eventHandlers.set(type, handler);
   }
 
   /** Sends a request and resolves with its result (or rejects on an error). */
@@ -750,6 +781,22 @@ class AcpClient {
     } catch {
       // Not JSON: a stray log line on stdout. Ignore it for protocol purposes;
       // it is still captured in the raw stream by the caller.
+      return;
+    }
+
+    // A top-level `type`-tagged event (e.g. runFinished). These are not
+    // JSON-RPC, so they carry no id/method/result — route them by `type` and
+    // stop before the request/response/notification branches.
+    if (
+      typeof message.type === "string" &&
+      message.id === undefined &&
+      message.method === undefined &&
+      message.result === undefined
+    ) {
+      const handler = this.eventHandlers.get(message.type);
+      if (handler) {
+        handler(message.data);
+      }
       return;
     }
 

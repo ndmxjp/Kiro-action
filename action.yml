@@ -88,7 +88,7 @@ inputs:
     required: false
     default: "v2"
   output_format:
-    description: "How the action drives the CLI. 'text' (default) runs 'kiro-cli chat --no-interactive' and captures its output. 'stream-json' or 'acp' select an in-action progress renderer driven by a minimal ACP client: the action speaks the protocol over stdio, waits for its MCP servers to report connected before prompting, and renders the streamed events into the execution file. Experimental and opt-in; the deny list, per-command shell scoping, and write confinement are unchanged whichever value is set. See docs/configuration.md."
+    description: "How the action drives the CLI. 'text' (default) runs 'kiro-cli chat --no-interactive' and captures its output. 'acp' selects an in-action progress renderer driven by a minimal ACP client: the action speaks the protocol over stdio, waits for its MCP servers to report connected before prompting, and renders the streamed events into the execution file. 'stream-json' is accepted as an alias for 'acp' and selects the same ACP client path (there is no separate stream-json reader). Experimental and opt-in; the deny list, per-command shell scoping, and write confinement are unchanged whichever value is set. See docs/configuration.md."
     required: false
     default: "text"
   trust_all_tools:
