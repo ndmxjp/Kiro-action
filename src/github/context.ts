@@ -93,6 +93,12 @@ export type ActionInputs = {
    * one writable channel into many, and a conversational run has no use for it.
    */
   useInlineComments: boolean;
+  /**
+   * Newline-separated skill sources to install before the run (see
+   * src/kiro/skills.ts for the accepted forms). Raw here; parsed and validated
+   * where it is used so a bad entry fails with the line that caused it.
+   */
+  skills: string;
   includeCommentsByActor: string;
   excludeCommentsByActor: string;
   customInstructions: string;
@@ -184,6 +190,7 @@ export function parseGitHubContext(): GitHubContext {
       allowedBots: process.env.ALLOWED_BOTS ?? "",
       trackProgress: process.env.TRACK_PROGRESS === "true",
       useInlineComments: process.env.USE_INLINE_COMMENTS === "true",
+      skills: process.env.SKILLS ?? "",
       includeCommentsByActor: process.env.INCLUDE_COMMENTS_BY_ACTOR ?? "",
       excludeCommentsByActor: process.env.EXCLUDE_COMMENTS_BY_ACTOR ?? "",
       customInstructions: process.env.CUSTOM_INSTRUCTIONS ?? "",

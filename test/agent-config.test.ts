@@ -253,6 +253,15 @@ describe("buildAgentConfig on the v3 engine", () => {
   });
 });
 
+describe("installed skills", () => {
+  test("are listed as a resource only when something was installed", () => {
+    expect(config({ hasSkills: true }).resources).toEqual([
+      "skill://~/.kiro/skills/*/SKILL.md",
+    ]);
+    expect("resources" in config()).toBe(false);
+  });
+});
+
 describe("the model input", () => {
   test("records the model in the agent config, on either engine", () => {
     // The model goes through the agent profile rather than a CLI flag, so it is

@@ -41,12 +41,15 @@ export async function prepareTagMode({
   octokit,
   githubToken,
   commitMessageFile,
+  hasSkills = false,
 }: {
   context: GitHubContext;
   octokit: Octokits;
   githubToken: string;
   /** Where the agent is asked to leave its commit message. */
   commitMessageFile: string;
+  /** Whether the `skills` input installed anything. */
+  hasSkills?: boolean;
 }): Promise<PreparedRun> {
   if (!isEntityContext(context)) {
     throw new Error("Tag mode requires an issue or pull request context");
@@ -130,6 +133,7 @@ export async function prepareTagMode({
     extraShellCommands: context.inputs.allowedShellCommands,
     model: context.inputs.model,
     systemPrompt: buildSystemPrompt("tag", shellCommands),
+    hasSkills,
   });
   const agentPath = await writeAgentConfig(agentConfig);
 

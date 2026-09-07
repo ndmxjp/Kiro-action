@@ -26,6 +26,7 @@ valid only for the duration of the job.
 | `label_trigger`       | `kiro`  | Label whose addition starts a run. Compared case-insensitively.                                                                                                                                     |
 | `track_progress`      | `false` | Forces tag mode even when `prompt` is set: you get the tracking comment and the fixed prompt. Only valid for issue and pull request events.                                                         |
 | `use_inline_comments` | `false` | Pull requests only: adds a `create_inline_comment` tool that posts review comments on lines of the diff, at most 20 per run. Off by default; see [Inline review comments](#inline-review-comments). |
+| `skills`              | `""`    | Agent Skills to install before the run, one per line, pinned to a commit. Kiro skills or Claude Code plugins; see [Installing skills](#installing-skills).                                          |
 
 ### Branching
 
@@ -109,6 +110,62 @@ replaced with a `camo.githubusercontent.com` proxy URL, the image is wrapped in 
 link to that URL, and any `style` you supply is discarded in favour of GitHub's own
 (`max-height`, `aspect-ratio`, and a placeholder background). So there is no point
 trying to nudge the vertical alignment from here.
+
+## Installing skills
+
+`skills` installs [Agent Skills](https://agentskills.io) into `~/.kiro/skills/`
+before the CLI starts, one entry per line:
+
+```yaml
+with:
+  kiro_api_key: ${{ secrets.KIRO_API_KEY }}
+  skills: |
+    acme/review-skills@3f2a9c1e3f2a9c1e3f2a9c1e3f2a9c1e3f2a9c1e
+    acme/monorepo@0b1c2d3e0b1c2d3e0b1c2d3e0b1c2d3e0b1c2d3e/skills/security
+    https://git.example.com/team/skills.git#7e8f9a0b7e8f9a0b7e8f9a0b7e8f9a0b7e8f9a0b
+```
+
+An entry may point at either of two shapes, and the action tells them apart by
+what it finds:
+
+- **A Kiro skill** — a directory holding `SKILL.md` (frontmatter `name` and
+  `description`, then instructions; optional `scripts/`, `references/`).
+- **A Claude Code plugin** — a directory with `skills/*/SKILL.md` (or the path
+  named by `.claude-plugin/plugin.json`'s `skills` field). Both formats follow the
+  Agent Skills standard, so a plugin's skills install as individual Kiro skills
+  unchanged. Everything else the plugin carries is **ignored and logged as
+  ignored**: `hooks/` and `.mcp.json` would run code the action did not choose,
+  `bin/` would widen the shell, and `commands/` and `agents/` are Claude-specific
+  formats. `${CLAUDE_PLUGIN_ROOT}` in a skill's markdown is rewritten to the
+  skill's installed path so bundled `scripts/` references keep resolving.
+
+Rules, and why:
+
+- **A full 40-character commit SHA is required.** A tag or branch is code that
+  can change under a workflow that names it, which is the same reason this
+  action pins `setup-bun` by commit. Entries naming a ref are rejected before
+  anything is fetched.
+- **Only `https://`.** `git clone` accepts transports such as `ext::` that
+  execute commands; the URL scheme is checked, and git is additionally run with
+  `protocol.allow=never` plus an https allow, so nothing else can be reached even
+  if the check were bypassed. Credentials in the URL are refused too.
+- **Installed under `$HOME`, never into the checkout.** On a pull request the
+  checkout is attacker-controlled, and anything written there would be swept into
+  the agent's commit.
+- **Fails before the tracking comment exists.** A bad entry fails the job
+  outright rather than leaving a "Kiro is working…" comment behind. A URL that
+  wants credentials fails too (`GIT_TERMINAL_PROMPT=0`) instead of hanging.
+- Public repositories only. Private sources would need a token on the clone,
+  which is not supported.
+
+The generated agent config lists `skill://~/.kiro/skills/*/SKILL.md` under
+`resources` when anything was installed. Measured on kiro-cli 2.21.1, the
+default engine loads `~/.kiro/skills` for a custom agent even without that
+entry; it is emitted for engines that follow the documented contract.
+
+A skill's instructions are text the model follows. Trust one the way you trust a
+`uses:` line: it is code, chosen by the workflow author, and it should be pinned.
+Its `scripts/` still only run if `allowed_shell_commands` permits them.
 
 ## Inline review comments
 

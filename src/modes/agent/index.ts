@@ -21,10 +21,13 @@ export async function prepareAgentMode({
   context,
   octokit,
   githubToken,
+  hasSkills = false,
 }: {
   context: GitHubContext;
   octokit: Octokits;
   githubToken: string;
+  /** Whether the `skills` input installed anything. */
+  hasSkills?: boolean;
 }): Promise<PreparedRun> {
   // Guards against a bot triggering a run that triggers another run.
   await checkHumanActor(octokit.rest, context);
@@ -75,6 +78,7 @@ export async function prepareAgentMode({
     systemPrompt: buildSystemPrompt("agent", shellCommands, {
       inlineComments: Boolean(mcpServers.github_inline_comment),
     }),
+    hasSkills,
   });
   const agentPath = await writeAgentConfig(agentConfig);
 

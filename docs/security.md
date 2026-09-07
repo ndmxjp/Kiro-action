@@ -229,7 +229,14 @@ These are real limitations, not oversights:
    flood a pull request. GitHub records each one under a review with state
    `COMMENTED` — a container that carries no verdict. The review API itself is
    never exposed, so `APPROVE` and `REQUEST_CHANGES` stay impossible.
-6. **No sandbox for non-write users.** The upstream action can run untrusted
+6. **Installed skills are prompt content the workflow author chose.** The
+   `skills` input fetches Agent Skills into `~/.kiro/skills/` before the run;
+   their instructions shape what the model does, so they are a prompt-injection
+   surface — one on the right side of the line, because only the workflow (not a
+   PR author) can name them, and only by commit SHA over https. Scripts they
+   bundle are not runnable unless `allowed_shell_commands` says so. A Claude Code
+   plugin's hooks, MCP servers and `bin/` are never installed.
+7. **No sandbox for non-write users.** The upstream action can run untrusted
    content in an isolated subprocess; this port simply refuses to run for actors
    without write access.
 
