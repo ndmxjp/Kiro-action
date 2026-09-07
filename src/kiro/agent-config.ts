@@ -4,6 +4,7 @@ import { join, resolve } from "path";
 import { KIRO_AGENT_NAME } from "../github/constants";
 import type { McpServers } from "../mcp/prepare-mcp-config";
 import type { AutoDetectedMode } from "../modes/detector";
+import { SKILLS_RESOURCE } from "./skills";
 
 /**
  * Hardened push wrapper. Pushing is done by the action itself, so this is only
@@ -171,6 +172,13 @@ export type KiroAgentConfig = {
    */
   permissions?: { rules: PermissionRule[] };
   model?: string;
+  /**
+   * Context the agent loads, as URIs. Only ever the installed-skills glob: the
+   * bare engine loads ~/.kiro/skills without being told (measured), but the
+   * documented contract for custom agents is that skills must be listed here,
+   * so the entry is emitted whenever skills were installed.
+   */
+  resources?: string[];
 };
 
 function parseList(value: string): string[] {
@@ -205,6 +213,8 @@ export type BuildAgentConfigParams = {
   extraShellCommands: string;
   model: string;
   systemPrompt: string;
+  /** Whether the `skills` input installed anything into ~/.kiro/skills. */
+  hasSkills?: boolean;
 };
 
 export function buildAgentConfig({
@@ -215,6 +225,7 @@ export function buildAgentConfig({
   extraShellCommands,
   model,
   systemPrompt,
+  hasSkills = false,
 }: BuildAgentConfigParams): KiroAgentConfig {
   // `@server` grants every tool exposed by that MCP server. Verified on v2:
   // with `allowedTools: ["@probe"]` the server's tool was callable headlessly.
@@ -253,6 +264,7 @@ export function buildAgentConfig({
         }
       : { toolsSettings: buildV2ToolsSettings(shellPatterns) }),
     ...(model ? { model } : {}),
+    ...(hasSkills ? { resources: [SKILLS_RESOURCE] } : {}),
   };
 }
 

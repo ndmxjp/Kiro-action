@@ -55,6 +55,10 @@ inputs:
     description: "On a pull request, also give Kiro a create_inline_comment tool that posts review comments on specific diff lines (at most 20 per run). It still cannot approve, request changes, or submit a review. Off by default."
     required: false
     default: "false"
+  skills:
+    description: "Agent Skills to install before the run, one per line, pinned to a commit: 'owner/repo@<sha>[/path]' or 'https://…git#<sha>[/path]'. Each may be a Kiro skill (a directory with SKILL.md) or a Claude Code plugin, whose skills/ are installed and whose hooks, MCP servers, commands, agents and bin/ are ignored. Installed under ~/.kiro/skills, never into the checkout. See docs/configuration.md."
+    required: false
+    default: ""
 
   # ---- Branching ----------------------------------------------------------
   base_branch:
@@ -225,6 +229,7 @@ runs:
         LABEL_TRIGGER: ${{ inputs.label_trigger }}
         TRACK_PROGRESS: ${{ inputs.track_progress }}
         USE_INLINE_COMMENTS: ${{ inputs.use_inline_comments }}
+        SKILLS: ${{ inputs.skills }}
         # Branching
         BASE_BRANCH: ${{ inputs.base_branch }}
         BRANCH_PREFIX: ${{ inputs.branch_prefix }}

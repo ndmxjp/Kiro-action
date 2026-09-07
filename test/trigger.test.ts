@@ -13,6 +13,7 @@ const inputs: ActionInputs = {
   allowedBots: "",
   trackProgress: false,
   useInlineComments: false,
+  skills: "",
   includeCommentsByActor: "",
   excludeCommentsByActor: "",
   customInstructions: "",

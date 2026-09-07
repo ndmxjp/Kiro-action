@@ -20,6 +20,7 @@ import { detectMode } from "../modes/detector";
 import { prepareTagMode, type PreparedRun } from "../modes/tag";
 import { prepareAgentMode } from "../modes/agent";
 import { installKiroCli } from "../kiro/install";
+import { installSkills, parseSkillSpecs } from "../kiro/skills";
 import { prepareKiroEnvironment } from "../kiro/env";
 import { runKiro, type KiroRunResult } from "../kiro/run";
 import {
@@ -94,6 +95,14 @@ export async function run() {
     // Fail before posting a tracking comment if the credential is missing.
     prepareKiroEnvironment();
 
+    // Skills are fetched here for the same reason: a bad `skills` entry should
+    // fail the job outright, not leave a "Kiro is working…" comment behind. The
+    // agent config, written in prepare*, has to know whether anything landed.
+    const installedSkills = installSkills(
+      parseSkillSpecs(context.inputs.skills),
+    );
+    const hasSkills = installedSkills.length > 0;
+
     prepared =
       mode === "tag"
         ? await prepareTagMode({
@@ -101,8 +110,9 @@ export async function run() {
             octokit,
             githubToken,
             commitMessageFile,
+            hasSkills,
           })
-        : await prepareAgentMode({ context, octokit, githubToken });
+        : await prepareAgentMode({ context, octokit, githubToken, hasSkills });
 
     prepareCompleted = true;
 

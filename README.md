@@ -118,8 +118,9 @@ Set `track_progress: true` to get the tracking comment _and_ a fixed prompt.
 
 ## What it can and cannot do
 
-Can: answer questions, review code, edit files, read CI results for the PR, and
-hand you a pre-filled "Create a PR" link. The action commits and pushes whatever
+Can: answer questions, review code, edit files, read CI results for the PR, use
+Agent Skills you pin with `skills` (including the `skills/` of a Claude Code
+plugin), and hand you a pre-filled "Create a PR" link. The action commits and pushes whatever
 it edited, to a branch it created or to the PR branch.
 
 Cannot: run commands you have not allowed (see

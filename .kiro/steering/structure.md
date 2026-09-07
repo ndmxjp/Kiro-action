@@ -8,7 +8,7 @@ inclusion: always
 action.yml                 the manifest: inputs, and the composite steps that run them
 src/entrypoints/           main.ts -> run.ts (the whole flow), update-comment-link.ts
 src/modes/                 detector.ts picks tag vs agent; tag/ and agent/ prepare each
-src/kiro/                  install, generated agent config, mcp.json, the CLI child process
+src/kiro/                  install, generated agent config, mcp.json, skills install, the CLI child process
 src/github/                api/, data/ (fetch + format), operations/ (branch, comments,
                            config restore), validation/ (actor, permissions, trigger), utils/
 src/mcp/                   the two MCP servers this action provides, and their assembly

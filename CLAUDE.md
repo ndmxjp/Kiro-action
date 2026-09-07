@@ -43,6 +43,8 @@ This is the part that needs reading several files to understand, and where the n
 
 The action supplies its own MCP servers (`src/mcp/prepare-mcp-config.ts`): `github_comment`, the channel through which progress is reported; `github_ci`, added on pull requests when a probe call confirms `actions: read`; and `github_inline_comment`, added on pull requests only when `use_inline_comments` is set — one tool wrapping `createReviewComment`, never the review API, capped at 20 per run.
 
+`src/kiro/skills.ts` installs the `skills` input — Agent Skills, or the `skills/` of a Claude Code plugin — into `~/.kiro/skills/` before the tracking comment is posted. Entries must carry a full commit SHA and an https URL; git runs with `protocol.allow=never` so `ext::` and friends are unreachable; a plugin's hooks, `.mcp.json` and `bin/` are ignored on purpose (they would bypass the tool gating). `${CLAUDE_PLUGIN_ROOT}` in skill markdown is rewritten to the install path.
+
 Prompt construction lives in `src/create-prompt/index.ts` (`buildSystemPrompt`, `createTagPrompt`); GitHub data is fetched and formatted in `src/github/data/`.
 
 ### Security invariants
