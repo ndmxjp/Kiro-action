@@ -71,6 +71,11 @@ jobs:
           # Line-bound review findings go on the line; the verdict stays in the
           # tracking comment. Capped at 20 per run. See docs/configuration.md.
           use_inline_comments: true
+          # One pinned skill, to exercise the skills install on a real runner.
+          # anthropics/skills is itself a Claude Code plugin (.claude-plugin/ +
+          # skills/), so this also covers the plugin path.
+          skills: |
+            anthropics/skills@41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/academy-guide
           # The Kiro ghost, floating, in place of the ⏳. Sixteen frames of an
           # APNG whose only per-frame difference is a vertical offset. It is
           # 44x54, so the display size keeps that ratio rather than squaring it,
