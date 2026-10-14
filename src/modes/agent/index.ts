@@ -9,7 +9,6 @@ import {
   grantedShellCommands,
   writeAgentConfig,
 } from "../../kiro/agent-config";
-import { writeUserMcpJson } from "../../kiro/mcp-json";
 import type { PreparedRun } from "../tag";
 
 /**
@@ -57,20 +56,12 @@ export async function prepareAgentMode({
     context,
   });
 
-  if (
-    context.inputs.agentEngine === "v3" &&
-    Object.keys(mcpServers).length > 0
-  ) {
-    await writeUserMcpJson(mcpServers);
-  }
-
   const shellCommands = grantedShellCommands(
     context.inputs.allowedShellCommands,
   );
 
   const agentConfig = buildAgentConfig({
     mode: "agent",
-    engine: context.inputs.agentEngine,
     mcpServers,
     extraTools: context.inputs.allowedTools,
     extraShellCommands: context.inputs.allowedShellCommands,

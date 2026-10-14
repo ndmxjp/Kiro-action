@@ -8,7 +8,7 @@ inclusion: always
 action.yml                 the manifest: inputs, and the composite steps that run them
 src/entrypoints/           main.ts -> run.ts (the whole flow), update-comment-link.ts
 src/modes/                 detector.ts picks tag vs agent; tag/ and agent/ prepare each
-src/kiro/                  install, generated agent config, mcp.json, skills install, the CLI child process
+src/kiro/                  install, generated agent config, skills install, the CLI child process
 src/github/                api/, data/ (fetch + format), operations/ (branch, comments,
                            config restore), validation/ (actor, permissions, trigger), utils/
 src/mcp/                   the two MCP servers this action provides, and their assembly
@@ -30,9 +30,9 @@ An input is not read from `action.yml` at runtime. The manifest maps each one in
 This is where the non-obvious constraints live. `docs/security.md` is the authority and records what was measured rather than assumed.
 
 - **The Kiro CLI has no `--mcp-config` and no `--allowedTools` flag.** Everything is expressed as a generated agent profile written to `~/.kiro/agents/kiro-action.json` by `src/kiro/agent-config.ts`. It is written to the home directory, never into the checkout's `.kiro/`, which is attacker-controlled on a pull request and would also be swept into the commit.
-- **The two engines take mutually exclusive schemas.** v2 uses `toolsSettings`; v3 uses `permissions.rules`. Emit one or the other and never both — handing v2 a config that carries `permissions` makes it drop the config entirely and fall back to the user default.
+- **The profile carries both permission schemas.** The classic engine reads `toolsSettings`, v3 reads `permissions.rules`, and `buildAgentConfig` emits both with the same policy — the shape `kiro-cli agent upgrade` itself writes. On kiro-cli 2.18.1 the classic engine dropped a profile that carried `permissions`, which is why they used to be mutually exclusive; measured loading on both engines on 2.29.1. Change one block and you must change the other.
 - **`fs_write` and `execute_bash` appear in `tools` but are deliberately absent from `allowedTools`.** Trusting a tool overrides the settings that scope it; the CLI says so out loud ("You have trusted execute_bash tool, which overrides the toolsSettings"). Moving them into `allowedTools` looks like a fix for a permission error and silently removes all path and command scoping.
-- **v3 ignores `mcpServers` declared inside an agent profile**, so on v3 the servers are written to `~/.kiro/settings/mcp.json` with `includeMcpJson` (`src/kiro/mcp-json.ts`). Reported upstream as kirodotdev/Kiro#10876.
+- **Both engines read `mcpServers` from the profile; `includeMcpJson` stays false.** On 2.18.1 v3 ignored the profile's servers (kirodotdev/Kiro#10876) and the action wrote them to `~/.kiro/settings/mcp.json` as a detour; measured gone on 2.29.1, and the detour was removed so the checkout's mcp.json is never merged on any engine. v3 also needs a `skill` allow rule before an installed skill can be activated.
 - **The CLI child is spawned detached, and the run resolves on `exit`, not `close`.** On kiro-cli 2.18.1, v3 answered, exited, and left a KAS server as a grandchild holding the output pipes, so waiting for `close` never returned. The process group is signalled and the pipes are destroyed explicitly. Fixed upstream in 2.21.1 (kirodotdev/Kiro#10877); the handling stays as a guard against a regression or a pinned older CLI.
 - **The agent never commits.** `src/git/commit.ts` stages only the paths whose contents changed after `snapshotWorkingTree`, so the action's own `bun install` and the pull-request config restore stay out of the agent's commit. The commit message is read from a file under `$RUNNER_TEMP`, which is why the write policy allows `$RUNNER_TEMP/kiro-*` in addition to `./**`.
 
