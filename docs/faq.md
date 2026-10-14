@@ -80,12 +80,13 @@ longer is. kiro-cli 2.21.1 ships `--output-format stream-json` — the run's ACP
 events as JSON Lines on stdout, measured here as clean JSONL with no ANSI, tool
 calls carrying the exact command and its result, and a `runFinished` event with
 the final answer (the upstream issue is still open, but the flag exists). This
-action does not use it yet: it requires `--agent-engine v2` or `v3` to be passed
-explicitly, and adopting it means redesigning how progress reaches the tracking
-comment.
+action does not use it yet: it requires the v2 or v3 engine (since kiro-cli 2.26 a
+bare `--no-interactive` run is v2, so that part is now free), and adopting it
+means redesigning how progress reaches the tracking comment.
 
-Bugs found while building this action and reported upstream:
-[#10876](https://github.com/kirodotdev/Kiro/issues/10876) (v3 ignores MCP servers
+Bugs found while building this action and reported upstream, both no longer
+reproducing on 2.29.1:
+[#10876](https://github.com/kirodotdev/Kiro/issues/10876) (v3 ignored MCP servers
 declared in an agent profile) and
 [#10877](https://github.com/kirodotdev/Kiro/issues/10877) (v3 leaked a KAS server
 per run, which held the caller's stdout; fixed in 2.21.1). ANSI escapes in piped

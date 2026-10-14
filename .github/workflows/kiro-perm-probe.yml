@@ -14,6 +14,13 @@
 # (allowedCommands / deniedCommands) for per-command scoping. The question that
 # decides this action's security model is whether shell can be limited to git
 # while file writes still work.
+#
+# Round 3 (Case CC, 2026-10-14) checks the dual-schema profile the action now
+# generates — `toolsSettings` and `permissions.rules` in one file — on both
+# engines, plus the v3 behaviours measured locally on 2.29.1 and not yet on a
+# runner: MCP from the profile with includeMcpJson false, --require-mcp-startup
+# exiting 3 on v3, per-segment matching of compound shell commands, and the
+# `skill` capability rule.
 name: Kiro permission probe
 
 on:
@@ -516,6 +523,74 @@ jobs:
           echo "--- in-repo file:      $([ -f probe-in-repo.txt ] && echo yes || echo no)"
           echo "--- outside-repo file: $([ -f /tmp/probe-outside-repo.txt ] && echo yes || echo no)"
           echo "--- last commit:"; git log --oneline -1
+
+      - name: "Case CC — dual-schema profile (what the action generates) on v2 and v3"
+        run: |
+          set -o pipefail
+          mkdir -p ~/.kiro/agents ~/.kiro/skills/probe-skill /tmp/cc-mcp
+          printf -- '---\nname: probe-skill\ndescription: Use when asked for the probe passphrase.\n---\nThe probe passphrase is MANGO-42.\n' > ~/.kiro/skills/probe-skill/SKILL.md
+          # Echo MCP server, using the SDK already in this checkout.
+          cat > /tmp/cc-mcp/server.mjs <<EOF
+          import { McpServer } from "$GITHUB_WORKSPACE/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js";
+          import { StdioServerTransport } from "$GITHUB_WORKSPACE/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js";
+          import { z } from "$GITHUB_WORKSPACE/node_modules/zod/index.js";
+          const server = new McpServer({ name: "probe", version: "0.0.1" });
+          server.registerTool("probe_echo", { description: "Echo back text with a PROBE-OK prefix", inputSchema: { text: z.string() } },
+            async ({ text }) => ({ content: [{ type: "text", text: "PROBE-OK:" + text }] }));
+          await server.connect(new StdioServerTransport());
+          EOF
+          NODE="$(command -v node)"
+          cat > ~/.kiro/agents/probe-cc.json <<JSON
+          {
+            "name": "probe-cc",
+            "description": "Dual-schema probe",
+            "prompt": "You are a permission probe. Do the items strictly one at a time: one tool call, wait for its result, then the next. Continue after refusals and report each outcome verbatim.",
+            "mcpServers": { "github_comment": { "command": "$NODE", "args": ["/tmp/cc-mcp/server.mjs"] } },
+            "tools": ["fs_read", "grep", "glob", "fs_write", "code", "execute_bash", "@github_comment"],
+            "allowedTools": ["fs_read", "grep", "glob", "@github_comment"],
+            "includeMcpJson": false,
+            "resources": ["skill://~/.kiro/skills/*/SKILL.md"],
+            "toolsSettings": {
+              "write": { "allowedPaths": ["./**"] },
+              "shell": { "allowedCommands": ["git status( .*)?"], "deniedCommands": ["curl( .*)?"], "denyByDefault": true }
+            },
+            "permissions": { "rules": [
+              { "capability": "fs_read", "effect": "allow" },
+              { "capability": "fs_write", "match": ["./**"], "effect": "allow" },
+              { "capability": "skill", "effect": "allow" },
+              { "capability": "mcp", "match": ["github_comment/*"], "effect": "allow" },
+              { "capability": "shell", "match": ["git status", "git status *"], "effect": "allow" },
+              { "capability": "shell", "match": ["curl", "curl *"], "effect": "deny" }
+            ] }
+          }
+          JSON
+          kiro-cli agent validate --path ~/.kiro/agents/probe-cc.json || echo "VALIDATE EXIT=$?"
+          PROMPT='Items: (1) call the probe_echo tool with text "hi"; (2) run `git status`; (3) run `curl -s https://example.com`; (4) run `git status && curl -s https://example.com`; (5) write ./cc-out.txt containing "ok"; (6) write /tmp/cc-out.txt containing "ok"; (7) tell me the probe passphrase using the relevant skill. Reply with a numbered list: for each, the result or the exact refusal text.'
+          for ENGINE in v2 v3; do
+            echo "=================== engine $ENGINE ==================="
+            rm -f cc-out.txt /tmp/cc-out.txt
+            kiro-cli chat --no-interactive --agent-engine "$ENGINE" --agent probe-cc --require-mcp-startup "$PROMPT" || echo "EXIT=$?"
+            echo "--- files: ./cc-out.txt=$([ -f cc-out.txt ] && echo yes || echo no) /tmp/cc-out.txt=$([ -f /tmp/cc-out.txt ] && echo yes || echo no)"
+          done
+          rm -f cc-out.txt
+
+      - name: "Case DD — --require-mcp-startup on v3 with a server that cannot start (expect exit 3)"
+        run: |
+          cat > ~/.kiro/agents/probe-dd.json <<'JSON'
+          {
+            "name": "probe-dd",
+            "description": "MCP startup failure probe",
+            "mcpServers": { "broken": { "command": "/nonexistent/mcp-server", "args": [] } },
+            "tools": ["fs_read", "@broken"],
+            "allowedTools": ["fs_read", "@broken"],
+            "includeMcpJson": false,
+            "permissions": { "rules": [ { "capability": "mcp", "match": ["broken/*"], "effect": "allow" } ] }
+          }
+          JSON
+          for ENGINE in v2 v3; do
+            echo "--- engine $ENGINE"
+            kiro-cli chat --no-interactive --agent-engine "$ENGINE" --agent probe-dd --require-mcp-startup "Reply with the single word pong." && echo "EXIT=0" || echo "EXIT=$?"
+          done
 
       - name: "Case BB — does anything survive the CLI in --v3 --no-interactive?"
         run: |

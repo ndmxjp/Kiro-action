@@ -15,7 +15,6 @@ const mcpServers = {
 function config(overrides: Partial<BuildAgentConfigParams> = {}) {
   return buildAgentConfig({
     mode: "tag",
-    engine: "v2",
     mcpServers,
     extraTools: "",
     extraShellCommands: "",
@@ -50,8 +49,10 @@ function withRunnerTemp<T>(value: string | undefined, body: () => T): T {
   }
 }
 
-describe("buildAgentConfig on the v2 engine", () => {
+describe("buildAgentConfig, classic-engine fields", () => {
   test("grants the MCP servers it was given, and never merges repo MCP config", () => {
+    // Both engines read `mcpServers` from the profile (v3 measured on 2.29.1),
+    // so mcp.json is never merged: the checkout's copy is attacker-controlled.
     const built = config();
 
     expect(built.tools).toContain("@github_comment");
@@ -121,11 +122,18 @@ describe("buildAgentConfig on the v2 engine", () => {
     expect(shell?.allowedCommands).toContain("bun run build");
   });
 
-  test("emits no capability rules — v2 drops a config that carries them", () => {
-    // Measured: passing a config with a `permissions` block to the v2 engine
-    // produced "no agent with name ... found. Falling back to user specified
-    // default", so the two schemas must never be mixed.
-    expect(config().permissions).toBeUndefined();
+  test("carries both schemas, so one profile serves either engine", () => {
+    // kiro-cli 2.18.1's classic engine dropped a profile that carried
+    // `permissions`; `kiro-cli agent upgrade` now writes exactly this dual shape
+    // and it loaded on both engines on 2.29.1. The two blocks must describe the
+    // same policy.
+    const built = config({ extraShellCommands: "bun test *" });
+
+    expect(built.toolsSettings.shell?.allowedCommands).toContain("bun test .*");
+    const allow = built.permissions.rules.find(
+      (rule) => rule.capability === "shell" && rule.effect === "allow",
+    );
+    expect(allow?.match).toContain("bun test *");
   });
 
   test("still hands over an unrestricted shell if a workflow insists", () => {
@@ -166,13 +174,9 @@ describe("grantedShellCommands", () => {
   });
 });
 
-describe("buildAgentConfig on the v3 engine", () => {
-  test("merges mcp.json, since v3 ignores servers in the agent profile", () => {
-    expect(config({ engine: "v3" }).includeMcpJson).toBe(true);
-  });
-
+describe("buildAgentConfig, v3 permission rules", () => {
   test("allows this action's own MCP servers", () => {
-    const rules = config({ engine: "v3" }).permissions?.rules ?? [];
+    const rules = config().permissions.rules;
     const mcp = rules.find((rule) => rule.capability === "mcp");
 
     expect(mcp).toEqual({
@@ -183,8 +187,7 @@ describe("buildAgentConfig on the v3 engine", () => {
   });
 
   test("adds no mcp rule when there are no servers", () => {
-    const rules =
-      config({ engine: "v3", mcpServers: {} }).permissions?.rules ?? [];
+    const rules = config({ mcpServers: {} }).permissions.rules;
 
     expect(rules.some((rule) => rule.capability === "mcp")).toBe(false);
   });
@@ -192,7 +195,7 @@ describe("buildAgentConfig on the v3 engine", () => {
   test("confines writes to the checkout and the runner paths a run needs", () => {
     const writeRule = (runnerTemp: string | undefined) =>
       withRunnerTemp(runnerTemp, () =>
-        (config({ engine: "v3" }).permissions?.rules ?? []).find(
+        config().permissions.rules.find(
           (rule) => rule.capability === "fs_write",
         ),
       );
@@ -212,10 +215,9 @@ describe("buildAgentConfig on the v3 engine", () => {
 
   test("honours allowed_shell_commands and grants the shell tool", () => {
     const built = config({
-      engine: "v3",
       extraShellCommands: "bun test *, git add *",
     });
-    const rules = built.permissions?.rules ?? [];
+    const rules = built.permissions.rules;
     const allow = rules.find(
       (rule) => rule.capability === "shell" && rule.effect === "allow",
     );
@@ -228,7 +230,7 @@ describe("buildAgentConfig on the v3 engine", () => {
   });
 
   test("allows the read-only git set even with nothing configured", () => {
-    const rules = config({ engine: "v3" }).permissions?.rules ?? [];
+    const rules = config().permissions.rules;
     const allow = rules.find(
       (rule) => rule.capability === "shell" && rule.effect === "allow",
     );
@@ -239,9 +241,7 @@ describe("buildAgentConfig on the v3 engine", () => {
   });
 
   test("always denies the dangerous commands, since deny outranks allow", () => {
-    const rules =
-      config({ engine: "v3", extraShellCommands: "bash *" }).permissions
-        ?.rules ?? [];
+    const rules = config({ extraShellCommands: "bash *" }).permissions.rules;
     const deny = rules.find(
       (rule) => rule.capability === "shell" && rule.effect === "deny",
     );
@@ -260,16 +260,26 @@ describe("installed skills", () => {
     ]);
     expect("resources" in config()).toBe(false);
   });
+
+  test("get a skill capability rule, which v3 needs to activate them", () => {
+    // Measured on 2.29.1: the skill was listed from `resources`, but loading it
+    // (`disclose_context`) was refused until a `skill` allow rule existed.
+    const skill = (rules: { capability: string; effect: string }[]) =>
+      rules.find((rule) => rule.capability === "skill");
+
+    expect(skill(config({ hasSkills: true }).permissions.rules)).toEqual({
+      capability: "skill",
+      effect: "allow",
+    });
+    expect(skill(config().permissions.rules)).toBeUndefined();
+  });
 });
 
 describe("the model input", () => {
-  test("records the model in the agent config, on either engine", () => {
+  test("records the model in the agent config", () => {
     // The model goes through the agent profile rather than a CLI flag, so it is
-    // set the same way whichever engine is selected.
+    // set the same way whichever engine runs the profile.
     expect(config({ model: "claude-sonnet-5" }).model).toBe("claude-sonnet-5");
-    expect(config({ engine: "v3", model: "claude-sonnet-5" }).model).toBe(
-      "claude-sonnet-5",
-    );
   });
 
   test("omits the key entirely when nothing is configured", () => {

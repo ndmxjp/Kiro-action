@@ -92,7 +92,7 @@ inputs:
     required: false
     default: ""
   agent_engine:
-    description: "Kiro agent engine: 'v2' (default) or 'v3'. Both scope the shell per command and confine writes to the checkout — v2 through toolsSettings, v3 through permissions.rules. v3 is early access and reads MCP servers from ~/.kiro/settings/mcp.json rather than the agent profile, which also merges the checkout's copy, so stay on v2 unless you need something only v3 has. See docs/security.md."
+    description: "Kiro agent engine: 'v2' (default, the CLI's classic engine) or 'v3'. The generated profile carries the policy in both schemas, so either engine scopes the shell per command, confines writes to the checkout, and loads this action's MCP servers and skills. v3 additionally evaluates every segment of a compound shell command and waits for MCP servers under --require-mcp-startup. Measured on kiro-cli 2.29.1; see docs/security.md."
     required: false
     default: "v2"
   trust_all_tools:

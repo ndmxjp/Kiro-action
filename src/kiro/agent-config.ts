@@ -58,8 +58,9 @@ const SHELL_TOOL = "execute_bash";
  * repo-scoped and side-effect free, and they are what lets it inspect a pull
  * request's own diff.
  *
- * Kept as prefixes because the two engines want different notations: v2 takes
- * anchored regexes, v3 takes globs.
+ * Kept as prefixes because the two engines want different notations: the
+ * classic engine takes anchored regexes in `toolsSettings`, v3 takes globs in
+ * `permissions.rules`, and the profile carries both.
  */
 const DEFAULT_SHELL_PREFIXES = [
   "git status",
@@ -130,6 +131,11 @@ export type ToolsSettings = {
 
 export type AgentEngine = "v2" | "v3";
 
+/**
+ * A v3 permission rule. `capability` is one of the engine's capability names
+ * (`fs_read`, `fs_write`, `shell`, `mcp`, `skill`, …); `match` narrows it with
+ * globs, and an absent `match` means the whole capability.
+ */
 export type PermissionRule = {
   capability: string;
   match?: string[];
@@ -149,28 +155,36 @@ export type KiroAgentConfig = {
   allowedTools: string[];
   /**
    * Whether to merge the MCP servers declared in `~/.kiro/settings/mcp.json` and
-   * `.kiro/settings/mcp.json`.
+   * `.kiro/settings/mcp.json`. Always false: the servers in `mcpServers` above
+   * are honoured directly by both engines, and merging would also pull in the
+   * checkout's copy — attacker-controlled on a pull request, and a way to have
+   * arbitrary commands started.
    *
-   * False on v2, where the servers in `mcpServers` above are honoured directly
-   * and merging would also pull in the checkout's copy — attacker-controlled on
-   * a pull request, and a way to have arbitrary commands started.
+   * On kiro-cli 2.18.1 the v3 engine ignored the profile's `mcpServers`, so
+   * this used to be true on v3 with the servers written to the user-scoped
+   * mcp.json as well (kirodotdev/Kiro#10876). Measured on 2.29.1: a server
+   * declared only in the profile, with this false, starts on v3 and its tool is
+   * callable, and a server that fails to start is exit 3 under
+   * `--require-mcp-startup`. The detour is gone.
+   */
+  includeMcpJson: false;
+  /**
+   * Per-command and per-path limits, honoured by the classic (v2) engine for
+   * tools that are *not* in `allowedTools`. v3 ignores this block and reads
+   * `permissions` instead.
+   */
+  toolsSettings: ToolsSettings;
+  /**
+   * Capability rules, honoured by the v3 engine. The classic engine ignores
+   * them, which is why `allowedTools` and `toolsSettings` carry the same policy.
    *
-   * True on v3, which ignores `mcpServers` in an agent profile entirely: there
-   * the servers are written to the user-scoped mcp.json instead (see
-   * src/kiro/mcp-json.ts). The checkout's copy is merged too, which is why
-   * restore-config replaces `.kiro/` from the base branch on pull requests.
+   * Both blocks are always emitted. On kiro-cli 2.18.1 the classic engine
+   * dropped a profile that carried `permissions` ("no agent with name … found"),
+   * which is why they used to be mutually exclusive; the CLI's own
+   * `agent upgrade` now writes exactly this dual shape ("the universal format
+   * both engines load"), and it was measured loading on both engines on 2.29.1.
    */
-  includeMcpJson: boolean;
-  /**
-   * Per-command and per-path limits, honoured by the v2 engine for tools that are
-   * *not* in `allowedTools`. Ignored by v3, which uses `permissions` instead.
-   */
-  toolsSettings?: ToolsSettings;
-  /**
-   * Capability rules, honoured only by the v3 agent engine. On v2 they are
-   * ignored, which is why `allowedTools` above carries the real policy there.
-   */
-  permissions?: { rules: PermissionRule[] };
+  permissions: { rules: PermissionRule[] };
   model?: string;
   /**
    * Context the agent loads, as URIs. Only ever the installed-skills glob: the
@@ -205,7 +219,6 @@ function runnerTempPaths(): string[] {
 
 export type BuildAgentConfigParams = {
   mode: AutoDetectedMode;
-  engine: AgentEngine;
   mcpServers: McpServers;
   /** Comma-separated extra tool names from the `allowed_tools` input. */
   extraTools: string;
@@ -219,7 +232,6 @@ export type BuildAgentConfigParams = {
 
 export function buildAgentConfig({
   mode,
-  engine,
   mcpServers,
   extraTools,
   extraShellCommands,
@@ -255,21 +267,21 @@ export function buildAgentConfig({
     mcpServers,
     tools: dedupe(tools),
     allowedTools: dedupe(trusted),
-    includeMcpJson: engine === "v3",
-    ...(engine === "v3"
-      ? {
-          permissions: {
-            rules: buildV3Rules(shellPatterns, Object.keys(mcpServers)),
-          },
-        }
-      : { toolsSettings: buildV2ToolsSettings(shellPatterns) }),
+    includeMcpJson: false,
+    // The same policy twice, once per engine schema; see the type's comments
+    // for why both are present.
+    toolsSettings: buildV2ToolsSettings(shellPatterns),
+    permissions: {
+      rules: buildV3Rules(shellPatterns, Object.keys(mcpServers), hasSkills),
+    },
     ...(model ? { model } : {}),
     ...(hasSkills ? { resources: [SKILLS_RESOURCE] } : {}),
   };
 }
 
 /**
- * Per-tool limits for the v2 engine, which enforces them for untrusted tools.
+ * Per-tool limits for the classic (v2) engine, which enforces them for untrusted
+ * tools.
  *
  * Measured: with the write tool untrusted and `allowedPaths: ["./**"]`, a write
  * inside the checkout succeeded and one to /tmp was refused; with the shell tool
@@ -294,16 +306,22 @@ function buildV2ToolsSettings(shellPatterns: string[]): ToolsSettings {
 }
 
 /**
- * Capability rules for the v3 engine, which — unlike v2 — enforces them.
+ * Capability rules for the v3 engine, which — unlike the classic one — enforces
+ * them and ignores `toolsSettings`.
  *
- * Measured on the v3 engine: `fs_write` scoped to `./**` blocked a write to
- * /tmp, a `shell` allow rule covered `git add`/`git commit` (neither is a v3
- * default), and a `shell` deny rule blocked `curl`, naming the agent profile as
- * its source.
+ * Measured on kiro-cli 2.29.1 in `--no-interactive` mode: `fs_write` scoped to
+ * `./**` wrote inside the checkout and refused /tmp; the `shell` deny rule
+ * refused `curl` by name ("Rule: deny shell matching … Source: agent-profile");
+ * `git status && curl …` was refused as well, because v3 evaluates every
+ * segment of a compound command, and `git status; echo x`, `env curl …` and
+ * `git  status` (two spaces) all fell outside the allow globs and were refused
+ * with "tool permission approval is not supported in non-interactive mode" —
+ * headless, anything unmatched is a refusal, never a prompt.
  */
 function buildV3Rules(
   shellPatterns: string[],
   mcpServerNames: string[],
+  hasSkills: boolean,
 ): PermissionRule[] {
   const rules: PermissionRule[] = [
     { capability: "fs_read", effect: "allow" },
@@ -315,6 +333,15 @@ function buildV3Rules(
       effect: "allow",
     },
   ];
+
+  // Activating a skill is its own capability on v3: the engine lists the skill
+  // from `resources`, but the `disclose_context` call that loads its body needs
+  // this rule. Measured on 2.29.1: without it the call was refused ("The user
+  // rejected this tool call") and the model answered without the skill; with it
+  // the skill loaded and was used.
+  if (hasSkills) {
+    rules.push({ capability: "skill", effect: "allow" });
+  }
 
   // Only this action's own servers. Without the rule the tool call falls through
   // to an approval prompt, which is a denial in headless mode.

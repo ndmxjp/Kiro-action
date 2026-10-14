@@ -159,9 +159,10 @@ Rules, and why:
   which is not supported.
 
 The generated agent config lists `skill://~/.kiro/skills/*/SKILL.md` under
-`resources` when anything was installed. Measured on kiro-cli 2.21.1, the
-default engine loads `~/.kiro/skills` for a custom agent even without that
-entry; it is emitted for engines that follow the documented contract.
+`resources` when anything was installed, together with a `skill` allow rule for
+the v3 engine, which treats activating a skill as its own capability. Measured on
+kiro-cli 2.29.1: v3 activated the installed skill through that rule, and the
+classic engine read it as a file.
 
 A skill's instructions are text the model follows. Trust one the way you trust a
 `uses:` line: it is code, chosen by the workflow author, and it should be pinned.
@@ -258,14 +259,24 @@ skipped with a warning rather than failing the run.
 
 ## Choosing an engine
 
-|                                 | `agent_engine: v2` (default) | `agent_engine: v3`   |
-| ------------------------------- | ---------------------------- | -------------------- |
-| Tracking comment (MCP)          | works                        | **does not work**    |
-| `allowed_shell_commands`        | ignored                      | enforced per command |
-| Writes confined to the checkout | no                           | yes                  |
+The generated profile carries its policy in both schemas the CLI knows
+(`toolsSettings` for the classic engine, `permissions.rules` for v3), so the two
+values of `agent_engine` enforce the same limits: a shell scoped to listed
+commands, writes confined to the checkout, this action's MCP servers and
+installed skills available. Measured on kiro-cli 2.29.1; the table is in
+[docs/security.md](security.md#the-v3-engine-is-equivalent-and-optional).
 
-Use the default for anything that reports back to an issue or pull request. Use
-`v3` for agent-mode automation that needs to run commands:
+|                                     | `agent_engine: v2` (default)                  | `agent_engine: v3`               |
+| ----------------------------------- | --------------------------------------------- | -------------------------------- |
+| Shell and write scoping             | per command, per path                         | per command, per path            |
+| Compound commands (`a && b`)        | matched as one string                         | every segment must pass          |
+| One denied call in a parallel batch | cancels the allowed calls issued alongside it | only the denied call fails       |
+| Tracking comment, CI, inline (MCP)  | work                                          | work                             |
+| `skills`                            | read as files                                 | activated as skills              |
+| Measured on a GitHub runner         | yes (`kiro-perm-probe.yml`)                   | not yet — developer machine only |
+
+Stay on the default until v3 has been through the probe harness on a runner; use
+`v3` where its per-segment shell matching or batch behaviour matters:
 
 ```yaml
 with:
@@ -278,9 +289,10 @@ with:
 
 There is no input for extra MCP servers yet. Two workarounds:
 
-1. Point the CLI at your own agent config with
-   `kiro_args: --agent /path/to/agent.json`, which overrides the generated one
-   (you then also own the tool and permission lists).
+1. Write your own agent config to `~/.kiro/agents/<name>.json` in an earlier
+   step and select it with `kiro_args: --agent <name>`, which overrides the
+   generated one (you then also own the tool and permission lists). Since
+   kiro-cli 2.26 `--agent` takes a name, not a file path.
 2. On a repository that does not take pull requests from strangers, commit
    `.kiro/agents/<name>.json` and select it the same way.
 

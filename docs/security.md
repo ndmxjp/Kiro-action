@@ -79,8 +79,9 @@ checkout**, and a **shell limited to specific commands**. How that is enforced w
 measured rather than assumed — `.github/workflows/kiro-perm-probe.yml` runs the CLI
 directly across a matrix of configurations.
 
-The mechanism on the v2 engine (the CLI default) is `toolsSettings`, and the
-essential detail is that **it only applies to tools that are not trusted**:
+The mechanism on the classic v2 engine (the CLI default) is `toolsSettings`, and
+the essential detail is that **it only applies to tools that are not trusted**
+(the same policy is emitted again as `permissions.rules` for v3; see below):
 
 | Configuration                                       | `git status --short` | write in repo | write to /tmp | `curl`      |
 | --------------------------------------------------- | -------------------- | ------------- | ------------- | ----------- |
@@ -124,36 +125,65 @@ unrestricted shell, which is documented as such.
 
 ## The v3 engine is equivalent, and optional
 
-The CLI also ships a newer engine, reachable as `kiro-cli chat --v3` and exposed
-here as `agent_engine: v3`. It enforces the same limits through `permissions.rules`
-instead of `toolsSettings`, and this action emits whichever schema matches the
-engine — never both, since handing v2 a config with a `permissions` block made it
-drop the config entirely ("no agent with name … found. Falling back to user
-specified default").
+The CLI also ships a newer engine, reachable as `kiro-cli chat --agent-engine v3`
+and exposed here as `agent_engine: v3`. It enforces the same limits through
+`permissions.rules` instead of `toolsSettings`, so the generated profile carries
+**both blocks with the same policy** — the shape the CLI's own
+`kiro-cli agent upgrade` writes ("the universal format both engines load"). On
+kiro-cli 2.18.1 the classic engine dropped a profile that carried `permissions`
+("no agent with name … found"), which is why the two schemas used to be emitted
+one at a time; that is no longer true.
 
-Two v3 quirks are worth knowing, both measured:
+Measured on kiro-cli 2.29.1 (KAS 0.66.33) with the profile this action generates,
+run headless on a developer machine against an MCP echo server standing in for
+`github_comment`:
 
-- It ignores `mcpServers` declared inside an agent profile. The same server in
-  `~/.kiro/settings/mcp.json` with `includeMcpJson: true` works, so that is where
-  this action writes them on v3 — which also merges the checkout's copy, hence the
-  config restore above. Reported upstream as
-  [kirodotdev/Kiro#10876](https://github.com/kirodotdev/Kiro/issues/10876).
-- On kiro-cli 2.18.1 the CLI exited after answering but the KAS server it started
-  as a grandchild kept running and held the output pipes, which kept this action's
-  own process from exiting — one leaked server per run, measured at eleven in a
-  single job. Reported as
-  [kirodotdev/Kiro#10877](https://github.com/kirodotdev/Kiro/issues/10877) and
-  fixed in 2.21.1 (kiro-team/kiro-cli#4293): measured here,
-  `--no-interactive --v3` now exits in about ten seconds with nothing left
-  behind. The CLI is still started in its own process group, and the group is signalled and the pipes
-  released once the run is over — cheap, harmless on a fixed CLI, and the only
-  defence if the leak returns or an older CLI is pinned with
-  `path_to_kiro_cli_executable`.
+| Check                                   | v3                                                                    | v2 (CLI default)                 |
+| --------------------------------------- | --------------------------------------------------------------------- | -------------------------------- |
+| MCP server declared in the profile      | started, tool callable (`includeMcpJson: false`)                      | started, tool callable           |
+| `--require-mcp-startup`, server missing | `runError` + **exit 3**                                               | exit 3                           |
+| `git status`                            | allowed                                                               | allowed                          |
+| `curl`                                  | denied by name: "Rule: deny shell matching … Source: agent-profile"   | denied: "forbidden: curl( .\*)?" |
+| `git status && curl …`                  | denied — every segment of a compound command is evaluated             | not measured                     |
+| `git status; echo x`, `env curl …`      | refused: no allow glob matched, and headless has nobody to ask        | not measured                     |
+| write inside the checkout               | allowed                                                               | allowed                          |
+| write to `/tmp`                         | refused                                                               | refused                          |
+| installed skill                         | activated — needs the `skill` capability rule the profile now carries | read through `fs_read`           |
+| process left behind                     | none                                                                  | none                             |
 
-v3 is not the default because 3.0 is documented as early access, `includeMcpJson`
-widens what gets loaded, and its registry is fragile in ways others have hit —
-kirodotdev/Kiro#10733 has it silently dropping any agent config without a
-`permissions` block while `agent validate` still exits 0.
+Two things the table does not show:
+
+- **One denied call in a parallel batch cancels its siblings on v2.** When the
+  model issued all six tool calls at once, the `curl` denial cancelled the other
+  five ("Tool use was cancelled by the user") and the run finished having done
+  nothing but report that. Fail-safe — nothing extra ran — but it degrades the
+  run, and since 2.26 a bare `kiro-cli chat --no-interactive` _is_ v2, so this is
+  what the default engine does. v3 does not do this. Issued one at a time, v2
+  completed every item.
+- **v3 activates a skill through `disclose_context`, which is its own capability.**
+  Without a `{"capability": "skill", "effect": "allow"}` rule the skill is listed
+  but every attempt to load it is refused; the profile emits the rule whenever
+  skills were installed.
+
+History worth keeping, both fixed upstream: on 2.18.1 v3 ignored `mcpServers`
+declared in an agent profile ([kirodotdev/Kiro#10876](https://github.com/kirodotdev/Kiro/issues/10876)),
+so this action wrote them to `~/.kiro/settings/mcp.json` with `includeMcpJson`
+— a detour that also merged the checkout's copy, and which is now gone from the
+code. And on 2.18.1 the CLI exited after answering but the KAS server it started
+as a grandchild kept running and held the output pipes
+([kirodotdev/Kiro#10877](https://github.com/kirodotdev/Kiro/issues/10877)), fixed
+in 2.21.1. The CLI is still started in its own process group, and the group is
+signalled and the pipes released once the run is over — cheap, harmless on a
+fixed CLI, and the only defence if the leak returns or an older CLI is pinned
+with `path_to_kiro_cli_executable`.
+
+v3 is not the default yet for two reasons. The table above was measured on a
+developer machine, not through `kiro-perm-probe.yml` on a runner, and this
+action's rule is that a default rests on the harness. And a headless v3 session
+turns on things the classic engine does not — knowledge indexing and code
+intelligence, cross-session memory (2.29), a cloud-config fetch at startup —
+whose behaviour on a shared or self-hosted runner has not been reviewed. Both are
+tracked in [#10](https://github.com/ndmxjp/Kiro-action/issues/10).
 
 ## Credentials
 
